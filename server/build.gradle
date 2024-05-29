@@ -83,6 +83,10 @@ dependencies {
     exclude group: 'org.elasticsearch', module: 'server'
   }
 
+  // property-based testing
+  testImplementation "net.jqwik:jqwik-api:${versions.jqwik}"
+  testCompileOnly 'org.apiguardian:apiguardian-api:1.0.0'
+  testRuntimeOnly "net.jqwik:jqwik-engine:${versions.jqwik}"
 }
 
 spotless {
@@ -154,6 +158,10 @@ if (BuildParams.isSnapshotBuild() == false) {
 
 tasks.named("test").configure {
   systemProperty 'es.insecure_network_trace_enabled', 'true'
+
+  useJUnitPlatform {
+    includeEngines 'jqwik'
+  }
 }
 
 tasks.named("thirdPartyAudit").configure {
