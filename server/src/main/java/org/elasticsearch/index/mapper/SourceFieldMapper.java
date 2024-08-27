@@ -38,6 +38,7 @@ import java.util.Locale;
 
 public class SourceFieldMapper extends MetadataFieldMapper {
     public static final NodeFeature SYNTHETIC_SOURCE_FALLBACK = new NodeFeature("mapper.source.synthetic_source_fallback");
+    public static final NodeFeature SYNTHETIC_SOURCE_COPY_TO = new NodeFeature("mapper.source.synthetic_source_copy_to");
 
     public static final String NAME = "_source";
     public static final String RECOVERY_SOURCE_NAME = "_recovery_source";

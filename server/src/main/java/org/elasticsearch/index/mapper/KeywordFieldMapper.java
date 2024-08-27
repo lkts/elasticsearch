@@ -1024,28 +1024,17 @@ public final class KeywordFieldMapper extends FieldMapper {
     }
 
     @Override
-    protected SyntheticSourceMode syntheticSourceMode() {
+    protected SyntheticSourceSupport syntheticSourceSupport() {
         if (fieldType.stored() || hasDocValues) {
-            return SyntheticSourceMode.NATIVE;
+            return new SyntheticSourceSupport.Native(syntheticFieldLoader(leafName()));
         }
 
-        return SyntheticSourceMode.FALLBACK;
+        return super.syntheticSourceSupport();
     }
 
-    @Override
-    public SourceLoader.SyntheticFieldLoader syntheticFieldLoader() {
-        return syntheticFieldLoader(leafName());
-    }
+    private SourceLoader.SyntheticFieldLoader syntheticFieldLoader(String simpleName) {
+        assert fieldType.stored() || hasDocValues;
 
-    public SourceLoader.SyntheticFieldLoader syntheticFieldLoader(String simpleName) {
-        if (hasScript()) {
-            return SourceLoader.SyntheticFieldLoader.NOTHING;
-        }
-        if (copyTo.copyToFields().isEmpty() != true) {
-            throw new IllegalArgumentException(
-                "field [" + fullPath() + "] of type [" + typeName() + "] doesn't support synthetic source because it declares copy_to"
-            );
-        }
         if (hasNormalizer()) {
             throw new IllegalArgumentException(
                 "field [" + fullPath() + "] of type [" + typeName() + "] doesn't support synthetic source because it declares a normalizer"
@@ -1066,28 +1055,23 @@ public final class KeywordFieldMapper extends FieldMapper {
             };
         }
 
-        if (hasDocValues) {
-            return new SortedSetDocValuesSyntheticFieldLoader(
-                fullPath(),
-                simpleName,
-                fieldType().ignoreAbove == Defaults.IGNORE_ABOVE ? null : originalName(),
-                false
-            ) {
+        return new SortedSetDocValuesSyntheticFieldLoader(
+            fullPath(),
+            simpleName,
+            fieldType().ignoreAbove == Defaults.IGNORE_ABOVE ? null : originalName(),
+            false
+        ) {
 
-                @Override
-                protected BytesRef convert(BytesRef value) {
-                    return value;
-                }
+            @Override
+            protected BytesRef convert(BytesRef value) {
+                return value;
+            }
 
-                @Override
-                protected BytesRef preserve(BytesRef value) {
-                    // Preserve must make a deep copy because convert gets a shallow copy from the iterator
-                    return BytesRef.deepCopyOf(value);
-                }
-            };
-        }
-
-        return super.syntheticFieldLoader();
+            @Override
+            protected BytesRef preserve(BytesRef value) {
+                // Preserve must make a deep copy because convert gets a shallow copy from the iterator
+                return BytesRef.deepCopyOf(value);
+            }
+        };
     }
-
 }
