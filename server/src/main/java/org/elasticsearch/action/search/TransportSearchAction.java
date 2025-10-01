@@ -46,6 +46,7 @@ import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
 import org.elasticsearch.cluster.project.ProjectResolver;
 import org.elasticsearch.cluster.routing.OperationRouting;
+import org.elasticsearch.cluster.routing.SearchShardRouting;
 import org.elasticsearch.cluster.routing.ShardIterator;
 import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.service.ClusterService;
@@ -1241,7 +1242,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                     null,
                     null,
                     searchShardsGroup.preFiltered(),
-                    searchShardsGroup.skipped()
+                    searchShardsGroup.skipped(),
+                    0 // TODO
                 );
                 remoteShardIterators.add(shardIterator);
             }
@@ -1294,7 +1296,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                     perNode.getSearchContextId(),
                     searchContextKeepAlive,
                     false,
-                    false
+                    false,
+                    0 // TODO
                 );
                 remoteShardIterators.add(shardIterator);
             }
@@ -1976,7 +1979,8 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                         perNode.getSearchContextId(),
                         keepAlive,
                         false,
-                        false
+                        false,
+                        0 // TODO
                     )
                 );
             }
@@ -2001,7 +2005,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
             searchRequest.routing(),
             searchRequest.indices()
         );
-        List<ShardIterator> shardRoutings = clusterService.operationRouting()
+        List<SearchShardRouting> shardRoutings = clusterService.operationRouting()
             .searchShards(
                 projectState,
                 concreteIndices,
@@ -2018,11 +2022,17 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         );
         SearchShardIterator[] list = new SearchShardIterator[shardRoutings.size()];
         int i = 0;
-        for (ShardIterator shardRouting : shardRoutings) {
-            final ShardId shardId = shardRouting.shardId();
+        for (SearchShardRouting shardRouting : shardRoutings) {
+            final ShardId shardId = shardRouting.iterator().shardId();
             OriginalIndices finalIndices = originalIndices.get(shardId.getIndex().getName());
             assert finalIndices != null;
-            list[i++] = new SearchShardIterator(clusterAlias, shardId, shardRouting.getShardRoutings(), finalIndices);
+            list[i++] = new SearchShardIterator(
+                clusterAlias,
+                shardId,
+                shardRouting.iterator().getShardRoutings(),
+                finalIndices,
+                shardRouting.reshardSplitShardCountSummary()
+            );
         }
         // the returned list must support in-place sorting, so this is the most memory efficient we can do here
         return Arrays.asList(list);
