@@ -41,6 +41,7 @@ import org.elasticsearch.cluster.metadata.IndexAbstraction;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver.ResolvedExpression;
+import org.elasticsearch.cluster.metadata.IndexReshardingMetadata;
 import org.elasticsearch.cluster.metadata.ProjectMetadata;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
@@ -1243,7 +1244,9 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                     null,
                     searchShardsGroup.preFiltered(),
                     searchShardsGroup.skipped(),
-                    0 // TODO
+                    // This parameter is specific to the resharding feature.
+                    // Resharding is currently not supported with CCS.
+                    IndexReshardingMetadata.NOOP_RESHARD_SPLIT_SHARD_COUNT_SUMMARY
                 );
                 remoteShardIterators.add(shardIterator);
             }
@@ -1297,7 +1300,9 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                     searchContextKeepAlive,
                     false,
                     false,
-                    0 // TODO
+                    // This parameter is specific to the resharding feature.
+                    // Resharding is currently not supported with CCS.
+                    IndexReshardingMetadata.NOOP_RESHARD_SPLIT_SHARD_COUNT_SUMMARY
                 );
                 remoteShardIterators.add(shardIterator);
             }
@@ -1980,7 +1985,15 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                         keepAlive,
                         false,
                         false,
-                        0 // TODO
+                        // This parameter is specific to the resharding feature.
+                        // It is used when creating a searcher to apply filtering needed to have correct search results
+                        // while resharding is in progress.
+                        // In context of PIT the searcher is reused or can be recreated only in read-only scenarios.
+                        // If a searcher is reused, this value won't be used
+                        // (it was calculated and used when PIT was created).
+                        // In read-only scenarios (e.g. searchable snapshots) we don't expect resharding to happen
+                        // so the value doesn't matter.
+                        IndexReshardingMetadata.NOOP_RESHARD_SPLIT_SHARD_COUNT_SUMMARY
                     )
                 );
             }
@@ -2005,7 +2018,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
             searchRequest.routing(),
             searchRequest.indices()
         );
-        List<SearchShardRouting> shardRoutings = clusterService.operationRouting()
+        List<SearchShardRouting> searchShards = clusterService.operationRouting()
             .searchShards(
                 projectState,
                 concreteIndices,
@@ -2020,18 +2033,19 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
             concreteIndices,
             searchRequest.indicesOptions()
         );
-        SearchShardIterator[] list = new SearchShardIterator[shardRoutings.size()];
+        SearchShardIterator[] list = new SearchShardIterator[searchShards.size()];
         int i = 0;
-        for (SearchShardRouting shardRouting : shardRoutings) {
-            final ShardId shardId = shardRouting.iterator().shardId();
+        for (SearchShardRouting shardInfo : searchShards) {
+            ShardIterator iterator = shardInfo.iterator();
+            final ShardId shardId = iterator.shardId();
             OriginalIndices finalIndices = originalIndices.get(shardId.getIndex().getName());
             assert finalIndices != null;
             list[i++] = new SearchShardIterator(
                 clusterAlias,
                 shardId,
-                shardRouting.iterator().getShardRoutings(),
+                iterator.getShardRoutings(),
                 finalIndices,
-                shardRouting.reshardSplitShardCountSummary()
+                shardInfo.reshardSplitShardCountSummary()
             );
         }
         // the returned list must support in-place sorting, so this is the most memory efficient we can do here
