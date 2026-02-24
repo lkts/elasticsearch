@@ -441,10 +441,10 @@ public class ComponentMetadataRulesPlugin implements Plugin<Settings> {
         components.withModule("org.orbisgis:h2gis-utilities", ExcludeAllTransitivesRule.class);
 
         // ASM dependencies
-        components.withModule("org.ow2.asm:asm-analysis", ExcludeAllTransitivesRule.class);
-        components.withModule("org.ow2.asm:asm-commons", ExcludeAllTransitivesRule.class);
-        components.withModule("org.ow2.asm:asm-tree", ExcludeAllTransitivesRule.class);
-        components.withModule("org.ow2.asm:asm-util", ExcludeAllTransitivesRule.class);
+//        components.withModule("org.ow2.asm:asm-analysis", ExcludeAllTransitivesRule.class);
+//        components.withModule("org.ow2.asm:asm-commons", ExcludeAllTransitivesRule.class);
+//        components.withModule("org.ow2.asm:asm-tree", ExcludeAllTransitivesRule.class);
+//        components.withModule("org.ow2.asm:asm-util", ExcludeAllTransitivesRule.class);
 
         // Reactive Streams dependencies
         components.withModule("org.reactivestreams:reactive-streams-tck", ExcludeAllTransitivesRule.class);
