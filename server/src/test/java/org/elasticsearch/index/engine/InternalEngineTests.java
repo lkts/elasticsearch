@@ -72,6 +72,7 @@ import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.routing.IndexShardRoutingTable;
 import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.routing.ShardRoutingState;
+import org.elasticsearch.cluster.routing.SplitShardCountSummary;
 import org.elasticsearch.cluster.routing.TestShardRouting;
 import org.elasticsearch.common.CheckedBiConsumer;
 import org.elasticsearch.common.Randomness;
@@ -799,7 +800,13 @@ public class InternalEngineTests extends EngineTestCase {
         MapperService mapperService = createMapperService();
         final AtomicReference<Engine.GetResult> latestGetResult = new AtomicReference<>();
         latestGetResult.set(
-            engine.get(newGet(true, doc), mapperService.mappingLookup(), mapperService.documentParser(), randomSearcherWrapper())
+            engine.get(
+                newGet(true, doc),
+                mapperService.mappingLookup(),
+                mapperService.documentParser(),
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
         );
         final AtomicBoolean flushFinished = new AtomicBoolean(false);
         final CyclicBarrier barrier = new CyclicBarrier(2);
@@ -815,7 +822,13 @@ public class InternalEngineTests extends EngineTestCase {
                     previousGetResult.close();
                 }
                 latestGetResult.set(
-                    engine.get(newGet(true, doc), mapperService.mappingLookup(), mapperService.documentParser(), randomSearcherWrapper())
+                    engine.get(
+                        newGet(true, doc),
+                        mapperService.mappingLookup(),
+                        mapperService.documentParser(),
+                        SplitShardCountSummary.IRRELEVANT,
+                        randomSearcherWrapper()
+                    )
                 );
                 if (latestGetResult.get().exists() == false) {
                     break;
@@ -856,18 +869,42 @@ public class InternalEngineTests extends EngineTestCase {
         searchResult.close();
 
         // but, not there non realtime
-        try (Engine.GetResult getResult = engine.get(newGet(false, doc), mappingLookup, documentParser, randomSearcherWrapper())) {
+        try (
+            Engine.GetResult getResult = engine.get(
+                newGet(false, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
+        ) {
             assertThat(getResult.exists(), equalTo(false));
         }
 
         // but, we can still get it (in realtime)
-        try (Engine.GetResult getResult = engine.get(newGet(true, doc), mappingLookup, documentParser, randomSearcherWrapper())) {
+        try (
+            Engine.GetResult getResult = engine.get(
+                newGet(true, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
+        ) {
             assertThat(getResult.exists(), equalTo(true));
             assertThat(getResult.docIdAndVersion(), notNullValue());
         }
 
         // but not real time is not yet visible
-        try (Engine.GetResult getResult = engine.get(newGet(false, doc), mappingLookup, documentParser, randomSearcherWrapper())) {
+        try (
+            Engine.GetResult getResult = engine.get(
+                newGet(false, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
+        ) {
             assertThat(getResult.exists(), equalTo(false));
         }
 
@@ -884,7 +921,15 @@ public class InternalEngineTests extends EngineTestCase {
         searchResult.close();
 
         // also in non realtime
-        try (Engine.GetResult getResult = engine.get(newGet(false, doc), mappingLookup, documentParser, randomSearcherWrapper())) {
+        try (
+            Engine.GetResult getResult = engine.get(
+                newGet(false, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
+        ) {
             assertThat(getResult.exists(), equalTo(true));
             assertThat(getResult.docIdAndVersion(), notNullValue());
         }
@@ -910,7 +955,15 @@ public class InternalEngineTests extends EngineTestCase {
         searchResult.close();
 
         // but, we can still get it (in realtime)
-        try (Engine.GetResult getResult = engine.get(newGet(true, doc), mappingLookup, documentParser, randomSearcherWrapper())) {
+        try (
+            Engine.GetResult getResult = engine.get(
+                newGet(true, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
+        ) {
             assertThat(getResult.exists(), equalTo(true));
             assertThat(getResult.docIdAndVersion(), notNullValue());
         }
@@ -947,7 +1000,15 @@ public class InternalEngineTests extends EngineTestCase {
         searchResult.close();
 
         // but, get should not see it (in realtime)
-        try (Engine.GetResult getResult = engine.get(newGet(true, doc), mappingLookup, documentParser, randomSearcherWrapper())) {
+        try (
+            Engine.GetResult getResult = engine.get(
+                newGet(true, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
+        ) {
             assertThat(getResult.exists(), equalTo(false));
         }
 
@@ -1005,7 +1066,15 @@ public class InternalEngineTests extends EngineTestCase {
         engine.flush();
 
         // and, verify get (in real time)
-        try (Engine.GetResult getResult = engine.get(newGet(true, doc), mappingLookup, documentParser, randomSearcherWrapper())) {
+        try (
+            Engine.GetResult getResult = engine.get(
+                newGet(true, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
+        ) {
             assertThat(getResult.exists(), equalTo(true));
             assertThat(getResult.docIdAndVersion(), notNullValue());
         }
@@ -1057,7 +1126,15 @@ public class InternalEngineTests extends EngineTestCase {
         long translogGetCountExpected = 0;
         LongSupplier translogInMemorySegmentCount = engine.translogInMemorySegmentsCount::get;
         long translogInMemorySegmentCountExpected = 0;
-        try (Engine.GetResult get = engine.get(new Engine.Get(true, true, "1"), mappingLookup, documentParser, randomSearcherWrapper())) {
+        try (
+            Engine.GetResult get = engine.get(
+                new Engine.Get(true, true, "1"),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
+        ) {
             // we do not track the translog location yet
             assertTrue(get.exists());
             assertEquals(translogGetCountExpected, translogGetCount.getAsLong());
@@ -1067,7 +1144,15 @@ public class InternalEngineTests extends EngineTestCase {
         assertThat(engine.lastRefreshedCheckpoint(), equalTo(0L));
 
         engine.index(indexForDoc(createParsedDoc("1", null)));
-        try (Engine.GetResult get = engine.get(new Engine.Get(true, true, "1"), mappingLookup, documentParser, searcher -> searcher)) {
+        try (
+            Engine.GetResult get = engine.get(
+                new Engine.Get(true, true, "1"),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                searcher -> searcher
+            )
+        ) {
             assertTrue(get.exists());
             assertEquals(++translogGetCountExpected, translogGetCount.getAsLong());
             assertEquals(translogInMemorySegmentCountExpected, translogInMemorySegmentCount.getAsLong());
@@ -1082,6 +1167,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, true, "1"),
                 mappingLookup,
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 searcher -> SearcherHelper.wrapSearcher(searcher, reader -> new MatchingDirectoryReader(reader, Queries.ALL_DOCS_INSTANCE))
             )
         ) {
@@ -1095,6 +1181,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, true, "1"),
                 mappingLookup,
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 searcher -> SearcherHelper.wrapSearcher(searcher, reader -> new MatchingDirectoryReader(reader, Queries.NO_DOCS_INSTANCE))
             )
         ) {
@@ -1108,6 +1195,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, true, "1"),
                 mappingLookup,
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 searcher -> SearcherHelper.wrapSearcher(
                     searcher,
                     reader -> new MatchingDirectoryReader(reader, new TermQuery(new Term(IdFieldMapper.NAME, Uid.encodeId("1"))))
@@ -1125,6 +1213,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, true, "1"),
                 mappingLookup,
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 searcher -> SearcherHelper.wrapSearcher(
                     searcher,
                     reader -> new MatchingDirectoryReader(reader, new TermQuery(new Term(IdFieldMapper.NAME, Uid.encodeId("2"))))
@@ -1144,6 +1233,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, true, "1"),
                 mappingLookup,
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 searcher -> SearcherHelper.wrapSearcher(
                     searcher,
                     reader -> new MatchingDirectoryReader(reader, new TermQuery(new Term("other_field", Uid.encodeId("test"))))
@@ -1448,7 +1538,13 @@ public class InternalEngineTests extends EngineTestCase {
         Engine.IndexResult indexResult = engine.index(create);
         assertThat(indexResult.getVersion(), equalTo(1L));
         try (
-            Engine.GetResult get = engine.get(new Engine.Get(true, false, doc.id()), mappingLookup, documentParser, randomSearcherWrapper())
+            Engine.GetResult get = engine.get(
+                new Engine.Get(true, false, doc.id()),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
         ) {
             assertEquals(1, get.version());
         }
@@ -1458,7 +1554,13 @@ public class InternalEngineTests extends EngineTestCase {
         assertThat(update_1_result.getVersion(), equalTo(2L));
 
         try (
-            Engine.GetResult get = engine.get(new Engine.Get(true, false, doc.id()), mappingLookup, documentParser, randomSearcherWrapper())
+            Engine.GetResult get = engine.get(
+                new Engine.Get(true, false, doc.id()),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
         ) {
             assertEquals(2, get.version());
         }
@@ -1472,6 +1574,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, false, doc.id()),
                 mappingLookup(),
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 randomSearcherWrapper()
             )
         ) {
@@ -1498,6 +1601,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, true, doc.id()).setIfSeqNo(indexResult.getSeqNo()).setIfPrimaryTerm(primaryTerm.get()),
                 mappingLookup,
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 randomSearcherWrapper()
             )
         ) {
@@ -1510,6 +1614,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, false, doc.id()).setIfSeqNo(indexResult.getSeqNo() + 1).setIfPrimaryTerm(primaryTerm.get()),
                 mappingLookup,
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 randomSearcherWrapper()
             )
         );
@@ -1520,6 +1625,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, false, doc.id()).setIfSeqNo(indexResult.getSeqNo()).setIfPrimaryTerm(primaryTerm.get() + 1),
                 mappingLookup,
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 randomSearcherWrapper()
             )
         );
@@ -1530,6 +1636,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, false, doc.id()).setIfSeqNo(indexResult.getSeqNo() + 1).setIfPrimaryTerm(primaryTerm.get() + 1),
                 mappingLookup,
                 documentParser,
+                SplitShardCountSummary.IRRELEVANT,
                 randomSearcherWrapper()
             )
         );
@@ -2431,7 +2538,15 @@ public class InternalEngineTests extends EngineTestCase {
         startInParallel(randomIntBetween(3, 5), i -> {
             for (int op = 0; op < opsPerThread; op++) {
                 Engine.Get engineGet = new Engine.Get(true, false, doc.id());
-                try (Engine.GetResult get = engine.get(engineGet, mappingLookup, documentParser, randomSearcherWrapper())) {
+                try (
+                    Engine.GetResult get = engine.get(
+                        engineGet,
+                        mappingLookup,
+                        documentParser,
+                        SplitShardCountSummary.IRRELEVANT,
+                        randomSearcherWrapper()
+                    )
+                ) {
                     FieldsVisitor visitor = new FieldsVisitor(true);
                     get.docIdAndVersion().reader.storedFields().document(get.docIdAndVersion().docId, visitor);
                     List<String> values = new ArrayList<>(Strings.commaDelimitedListToSet(visitor.source().utf8ToString()));
@@ -2476,7 +2591,13 @@ public class InternalEngineTests extends EngineTestCase {
         }
 
         try (
-            Engine.GetResult get = engine.get(new Engine.Get(true, false, doc.id()), mappingLookup, documentParser, randomSearcherWrapper())
+            Engine.GetResult get = engine.get(
+                new Engine.Get(true, false, doc.id()),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            )
         ) {
             FieldsVisitor visitor = new FieldsVisitor(true);
             get.docIdAndVersion().reader.storedFields().document(get.docIdAndVersion().docId, visitor);
@@ -3170,7 +3291,13 @@ public class InternalEngineTests extends EngineTestCase {
             );
 
             // Get should not find the document
-            Engine.GetResult getResult = engine.get(newGet(true, doc), mappingLookup, documentParser, randomSearcherWrapper());
+            Engine.GetResult getResult = engine.get(
+                newGet(true, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            );
             assertThat(getResult.exists(), equalTo(false));
 
             // Give the gc pruning logic a chance to kick in
@@ -3197,7 +3324,13 @@ public class InternalEngineTests extends EngineTestCase {
             );
 
             // Get should not find the document (we never indexed uid=2):
-            getResult = engine.get(new Engine.Get(true, false, "2"), mappingLookup, documentParser, randomSearcherWrapper());
+            getResult = engine.get(
+                new Engine.Get(true, false, "2"),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            );
             assertThat(getResult.exists(), equalTo(false));
 
             // Try to index uid=1 with a too-old version, should fail:
@@ -3220,7 +3353,13 @@ public class InternalEngineTests extends EngineTestCase {
             assertThat(indexResult.getFailure(), instanceOf(VersionConflictEngineException.class));
 
             // Get should still not find the document
-            getResult = engine.get(newGet(true, doc), mappingLookup, documentParser, randomSearcherWrapper());
+            getResult = engine.get(
+                newGet(true, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            );
             assertThat(getResult.exists(), equalTo(false));
 
             // Try to index uid=2 with a too-old version, should fail:
@@ -3243,7 +3382,13 @@ public class InternalEngineTests extends EngineTestCase {
             assertThat(indexResult.getFailure(), instanceOf(VersionConflictEngineException.class));
 
             // Get should not find the document
-            getResult = engine.get(newGet(true, doc), mappingLookup, documentParser, randomSearcherWrapper());
+            getResult = engine.get(
+                newGet(true, doc),
+                mappingLookup,
+                documentParser,
+                SplitShardCountSummary.IRRELEVANT,
+                randomSearcherWrapper()
+            );
             assertThat(getResult.exists(), equalTo(false));
         }
     }
@@ -5090,6 +5235,7 @@ public class InternalEngineTests extends EngineTestCase {
                 new Engine.Get(true, false, "1"),
                 mapperService.mappingLookup(),
                 mapperService.documentParser(),
+                SplitShardCountSummary.IRRELEVANT,
                 randomSearcherWrapper()
             )
         ) {
@@ -6216,6 +6362,7 @@ public class InternalEngineTests extends EngineTestCase {
                             new Engine.Get(true, false, doc3.id()),
                             mappingLookup,
                             documentParser,
+                            SplitShardCountSummary.IRRELEVANT,
                             searcher -> searcher
                         )
                     ) {
@@ -6229,6 +6376,7 @@ public class InternalEngineTests extends EngineTestCase {
                         new Engine.Get(true, false, doc.id()),
                         mappingLookup,
                         documentParser,
+                        SplitShardCountSummary.IRRELEVANT,
                         searcher -> SearcherHelper.wrapSearcher(searcher, r -> new MatchingDirectoryReader(r, Queries.ALL_DOCS_INSTANCE))
                     )
                 ) {
@@ -7267,6 +7415,7 @@ public class InternalEngineTests extends EngineTestCase {
                                     newGet(true, doc),
                                     mapperService.mappingLookup(),
                                     mapperService.documentParser(),
+                                    SplitShardCountSummary.IRRELEVANT,
                                     randomSearcherWrapper()
                                 )
                             ) {
@@ -7926,6 +8075,7 @@ public class InternalEngineTests extends EngineTestCase {
                     new Engine.Get(true, false, doc.id()),
                     mapperService.mappingLookup(),
                     mapperService.documentParser(),
+                    SplitShardCountSummary.IRRELEVANT,
                     randomSearcherWrapper()
                 )
             ) {
