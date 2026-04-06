@@ -167,7 +167,7 @@ public class TransportExplainAction extends TransportSingleShardAction<ExplainRe
         try {
             // TODO remove SplitShardCountSummary.UNSET
             // No need to check the type, IndexShard#get does it for us
-            result = context.indexShard().get(new Engine.Get(false, false, request.id()), SplitShardCountSummary.UNSET);
+            result = context.indexShard().get(new Engine.Get(false, false, request.id()), request.getSplitShardCountSummary());
             if (result.exists() == false) {
                 return new ExplainResponse(shardId.getIndexName(), request.id(), false);
             }
