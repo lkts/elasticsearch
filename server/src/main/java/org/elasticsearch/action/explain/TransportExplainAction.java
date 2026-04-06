@@ -164,7 +164,6 @@ public class TransportExplainAction extends TransportSingleShardAction<ExplainRe
         SearchContext context = searchService.createSearchContext(shardSearchLocalRequest, SearchService.NO_TIMEOUT);
         Engine.GetResult result = null;
         try {
-            // TODO remove SplitShardCountSummary.UNSET
             // No need to check the type, IndexShard#get does it for us
             result = context.indexShard().get(new Engine.Get(false, false, request.id()), request.getSplitShardCountSummary());
             if (result.exists() == false) {
@@ -182,6 +181,7 @@ public class TransportExplainAction extends TransportSingleShardAction<ExplainRe
                 // Advantage is that we're not opening a second searcher to retrieve the _source. Also
                 // because we are working in the same searcher in engineGetResult we can be sure that a
                 // doc isn't deleted between the initial get and this call.
+                // SplitShardCountSummary is not relevant since the searcher is reused as well.
                 GetResult getResult = context.indexShard()
                     .getService()
                     .get(result, request.id(), request.storedFields(), request.fetchSourceContext());
@@ -203,7 +203,9 @@ public class TransportExplainAction extends TransportSingleShardAction<ExplainRe
 
     @Override
     protected ShardIterator shards(ProjectState state, InternalRequest request) {
-        return clusterService.operationRouting()
+        ShardIterator iterator = clusterService.operationRouting()
             .getShards(state, request.concreteIndex(), request.request().id(), request.request().routing(), request.request().preference());
+
+        return iterator != null ? ShardIterator.allSearchableShards(iterator) : null;
     }
 }
