@@ -15,7 +15,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ElasticsearchSecurityException;
-import org.elasticsearch.common.CheckedSupplier;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
@@ -30,7 +29,6 @@ import org.elasticsearch.common.util.set.Sets;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.env.Environment;
 import org.elasticsearch.xpack.core.XPackSettings;
-import org.elasticsearch.xpack.core.common.socket.SocketAccess;
 import org.elasticsearch.xpack.core.ssl.cert.CertificateInfo;
 import org.elasticsearch.xpack.core.ssl.extension.SslProfileExtension;
 import org.elasticsearch.xpack.core.watcher.WatcherField;
@@ -57,6 +55,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -710,42 +709,42 @@ public class SSLService {
 
         @Override
         public Socket createSocket() throws IOException {
-            SSLSocket sslSocket = createWithPermissions(delegate::createSocket);
+            SSLSocket sslSocket = (SSLSocket) delegate.createSocket();
             configureSSLSocket(sslSocket);
             return sslSocket;
         }
 
         @Override
         public Socket createSocket(Socket socket, String host, int port, boolean autoClose) throws IOException {
-            SSLSocket sslSocket = createWithPermissions(() -> delegate.createSocket(socket, host, port, autoClose));
+            SSLSocket sslSocket = (SSLSocket) delegate.createSocket(socket, host, port, autoClose);
             configureSSLSocket(sslSocket);
             return sslSocket;
         }
 
         @Override
         public Socket createSocket(String host, int port) throws IOException {
-            SSLSocket sslSocket = createWithPermissions(() -> delegate.createSocket(host, port));
+            SSLSocket sslSocket = (SSLSocket) delegate.createSocket(host, port);
             configureSSLSocket(sslSocket);
             return sslSocket;
         }
 
         @Override
         public Socket createSocket(String host, int port, InetAddress localHost, int localPort) throws IOException {
-            SSLSocket sslSocket = createWithPermissions(() -> delegate.createSocket(host, port, localHost, localPort));
+            SSLSocket sslSocket = (SSLSocket) delegate.createSocket(host, port, localHost, localPort);
             configureSSLSocket(sslSocket);
             return sslSocket;
         }
 
         @Override
         public Socket createSocket(InetAddress host, int port) throws IOException {
-            SSLSocket sslSocket = createWithPermissions(() -> delegate.createSocket(host, port));
+            SSLSocket sslSocket = (SSLSocket) delegate.createSocket(host, port);
             configureSSLSocket(sslSocket);
             return sslSocket;
         }
 
         @Override
         public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort) throws IOException {
-            SSLSocket sslSocket = createWithPermissions(() -> delegate.createSocket(address, port, localAddress, localPort));
+            SSLSocket sslSocket = (SSLSocket) delegate.createSocket(address, port, localAddress, localPort);
             configureSSLSocket(sslSocket);
             return sslSocket;
         }
@@ -761,10 +760,6 @@ public class SSLService {
             parameters.setUseCipherSuitesOrder(true);
             socket.setSSLParameters(parameters);
         }
-
-        private static SSLSocket createWithPermissions(CheckedSupplier<Socket, IOException> supplier) throws IOException {
-            return (SSLSocket) SocketAccess.doPrivileged(supplier);
-        }
     }
 
     final class SSLContextHolder implements SslProfile {
@@ -772,7 +767,7 @@ public class SSLService {
         private final SslKeyConfig keyConfig;
         private final SslTrustConfig trustConfig;
         private final SslConfiguration sslConfiguration;
-        private final List<Runnable> reloadListeners;
+        private final List<Consumer<? super SSLContextHolder>> reloadListeners;
 
         SSLContextHolder(SSLContext context, SslConfiguration sslConfiguration) {
             this.context = context;
@@ -799,7 +794,7 @@ public class SSLService {
                 sslConfiguration.supportedProtocols().toArray(Strings.EMPTY_ARRAY),
                 supportedCiphers(socketFactory.getSupportedCipherSuites(), sslConfiguration.getCipherSuites(), false)
             );
-            this.addReloadListener(securitySSLSocketFactory::reload);
+            this.addReloadListener(profile -> securitySSLSocketFactory.reload());
             return securitySSLSocketFactory;
         }
 
@@ -850,11 +845,16 @@ public class SSLService {
             return sslEngine;
         }
 
+        @Override
+        public void addReloadListener(Consumer<SslProfile> listener) {
+            this.reloadListeners.add(listener);
+        }
+
         synchronized void reload() {
             invalidateSessions(context.getClientSessionContext());
             invalidateSessions(context.getServerSessionContext());
             reloadSslContext();
-            this.reloadListeners.forEach(Runnable::run);
+            this.reloadListeners.forEach(l -> l.accept(this));
         }
 
         private void reloadSslContext() {
@@ -874,10 +874,6 @@ public class SSLService {
             } catch (GeneralSecurityException e) {
                 throw new ElasticsearchException("failed to initialize the SSLContext", e);
             }
-        }
-
-        public void addReloadListener(Runnable listener) {
-            this.reloadListeners.add(listener);
         }
     }
 

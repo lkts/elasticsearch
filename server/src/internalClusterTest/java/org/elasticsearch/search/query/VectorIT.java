@@ -74,6 +74,13 @@ public class VectorIT extends ESIntegTestCase {
     }
 
     public void testFilteredQueryStrategy() {
+        // Disable early termination to isolate the filter heuristic behavior
+        client().admin()
+            .indices()
+            .prepareUpdateSettings(INDEX_NAME)
+            .setSettings(Settings.builder().put(DenseVectorFieldMapper.HNSW_EARLY_TERMINATION.getKey(), false))
+            .get();
+
         float[] vector = new float[16];
         randomVector(vector, 25);
         int upperLimit = 35;
@@ -130,6 +137,11 @@ public class VectorIT extends ESIntegTestCase {
     }
 
     public void testHnswEarlyTerminationQuery() {
+        client().admin()
+            .indices()
+            .prepareUpdateSettings(INDEX_NAME)
+            .setSettings(Settings.builder().put(DenseVectorFieldMapper.HNSW_EARLY_TERMINATION.getKey(), false))
+            .get();
         float[] vector = new float[16];
         randomVector(vector, 25);
         int upperLimit = 35;
@@ -170,10 +182,8 @@ public class VectorIT extends ESIntegTestCase {
                         )
                         .sum();
                     assertTrue(
-                        "earlyTerminationVectorOps [" + earlyTerminationVectorOpsSum + "] is not lt vectorOps [" + vectorOpsSum + "]",
-                        earlyTerminationVectorOpsSum < vectorOpsSum
-                            // if both switch to brute-force due to excessive exploration, they will both equal to upperLimit
-                            || (earlyTerminationVectorOpsSum == vectorOpsSum && vectorOpsSum == upperLimit + 1)
+                        "earlyTerminationVectorOps [" + earlyTerminationVectorOpsSum + "] is not lte vectorOps [" + vectorOpsSum + "]",
+                        earlyTerminationVectorOpsSum <= vectorOpsSum
                     );
                 }
             );

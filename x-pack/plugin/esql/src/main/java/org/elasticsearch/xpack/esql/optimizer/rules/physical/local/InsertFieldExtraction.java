@@ -7,6 +7,7 @@
 
 package org.elasticsearch.xpack.esql.optimizer.rules.physical.local;
 
+import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.xpack.esql.core.expression.Attribute;
 import org.elasticsearch.xpack.esql.core.expression.FieldAttribute;
 import org.elasticsearch.xpack.esql.core.expression.MetadataAttribute;
@@ -36,6 +37,13 @@ public class InsertFieldExtraction extends PhysicalOptimizerRules.ParameterizedO
 
     @Override
     public PhysicalPlan rule(PhysicalPlan plan, LocalPhysicalOptimizerContext context) {
+        var preference = context.configuration() != null
+            ? context.configuration().pragmas().fieldExtractPreference()
+            : MappedFieldType.FieldExtractPreference.NONE;
+        return InsertFieldExtraction.rule(plan, preference);
+    }
+
+    static PhysicalPlan rule(PhysicalPlan plan, MappedFieldType.FieldExtractPreference fieldExtractPreference) {
         // apply the plan locally, adding a field extractor right before data is loaded
         // by going bottom-up
         plan = plan.transformUp(p -> {
@@ -53,15 +61,10 @@ public class InsertFieldExtraction extends PhysicalOptimizerRules.ParameterizedO
                 boolean found = false;
                 for (PhysicalPlan child : p.children()) {
                     if (found == false) {
-                        if (child.outputSet().stream().anyMatch(EsQueryExec::isSourceAttribute)) {
+                        if (child.outputSet().stream().anyMatch(EsQueryExec::isDocAttribute)) {
                             found = true;
                             // collect source attributes and add the extractor
-                            child = new FieldExtractExec(
-                                p.source(),
-                                child,
-                                List.copyOf(missing),
-                                context.configuration().pragmas().fieldExtractPreference()
-                            );
+                            child = new FieldExtractExec(p.source(), child, List.copyOf(missing), fieldExtractPreference);
                         }
                     }
                     newChildren.add(child);
@@ -87,7 +90,7 @@ public class InsertFieldExtraction extends PhysicalOptimizerRules.ParameterizedO
         // This is also correct for LookupJoinExec, where we only need field extraction on the left fields used to match, since the right
         // side is always materialized.
         p.references().forEach(f -> {
-            if (f instanceof FieldAttribute || f instanceof MetadataAttribute) {
+            if ((f instanceof FieldAttribute || f instanceof MetadataAttribute) && EsQueryExec.isDocAttribute(f) == false) {
                 if (input.contains(f) == false) {
                     missing.add(f);
                 }

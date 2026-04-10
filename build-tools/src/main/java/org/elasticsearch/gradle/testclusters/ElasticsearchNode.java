@@ -112,7 +112,8 @@ public class ElasticsearchNode implements TestClusterConfiguration {
         "discovery.seed_providers",
         "cluster.deprecation_indexing.enabled",
         "cluster.initial_master_nodes",
-        "xpack.security.enabled"
+        "xpack.security.enabled",
+        "node.processors"
 
     );
 
@@ -1370,6 +1371,9 @@ public class ElasticsearchNode implements TestClusterConfiguration {
         baseConfig.put("path.repo", confPathRepo.toAbsolutePath().toString());
         baseConfig.put("path.data", confPathData.toAbsolutePath().toString());
         baseConfig.put("path.logs", confPathLogs.toAbsolutePath().toString());
+        if (Boolean.getBoolean("java.net.preferIPv6Addresses")) {
+            baseConfig.put("network.host", "_local:ipv6_");
+        }
         baseConfig.put("node.attr.testattr", "test");
         baseConfig.put("node.portsfile", "true");
         baseConfig.put("http.port", httpPort);
@@ -1402,6 +1406,15 @@ public class ElasticsearchNode implements TestClusterConfiguration {
         if (getVersion().getMajor() >= 8) {
             baseConfig.put("cluster.service.slow_task_logging_threshold", "5s");
             baseConfig.put("cluster.service.slow_master_task_logging_threshold", "5s");
+        }
+
+        // Limit the number of allocated processors for all nodes in the cluster by default.
+        // This is to ensure that the tests run consistently across different environments.
+        String processorCount = shouldConfigureTestClustersWithOneProcessor() ? "1" : "2";
+        if (getVersion().onOrAfter("7.4.0")) {
+            baseConfig.put("node.processors", processorCount);
+        } else {
+            baseConfig.put("processors", processorCount);
         }
 
         baseConfig.put("action.destructive_requires_name", "false");
@@ -1788,5 +1801,9 @@ public class ElasticsearchNode implements TestClusterConfiguration {
         LinkCreationException(String message, IOException cause) {
             super(message, cause);
         }
+    }
+
+    private boolean shouldConfigureTestClustersWithOneProcessor() {
+        return Boolean.parseBoolean(System.getProperty("tests.configure_test_clusters_with_one_processor", "false"));
     }
 }

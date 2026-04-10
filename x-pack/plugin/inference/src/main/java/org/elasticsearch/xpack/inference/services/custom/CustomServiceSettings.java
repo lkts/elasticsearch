@@ -8,7 +8,6 @@
 package org.elasticsearch.xpack.inference.services.custom;
 
 import org.elasticsearch.TransportVersion;
-import org.elasticsearch.TransportVersions;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.ValidationException;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -24,12 +23,13 @@ import org.elasticsearch.xcontent.ToXContentFragment;
 import org.elasticsearch.xcontent.ToXContentObject;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xpack.inference.services.ConfigurationParseContext;
+import org.elasticsearch.xpack.inference.services.ServiceFields;
 import org.elasticsearch.xpack.inference.services.custom.response.CompletionResponseParser;
 import org.elasticsearch.xpack.inference.services.custom.response.CustomResponseParser;
+import org.elasticsearch.xpack.inference.services.custom.response.DenseEmbeddingResponseParser;
 import org.elasticsearch.xpack.inference.services.custom.response.NoopResponseParser;
 import org.elasticsearch.xpack.inference.services.custom.response.RerankResponseParser;
 import org.elasticsearch.xpack.inference.services.custom.response.SparseEmbeddingResponseParser;
-import org.elasticsearch.xpack.inference.services.custom.response.TextEmbeddingResponseParser;
 import org.elasticsearch.xpack.inference.services.settings.FilteredXContentObject;
 import org.elasticsearch.xpack.inference.services.settings.RateLimitSettings;
 
@@ -54,7 +54,6 @@ import static org.elasticsearch.xpack.inference.services.ServiceUtils.validateMa
 public class CustomServiceSettings extends FilteredXContentObject implements ServiceSettings, CustomRateLimitServiceSettings {
 
     public static final String NAME = "custom_service_settings";
-    public static final String URL = "url";
     public static final String BATCH_SIZE = "batch_size";
     public static final String HEADERS = "headers";
     public static final String REQUEST = "request";
@@ -65,12 +64,23 @@ public class CustomServiceSettings extends FilteredXContentObject implements Ser
     private static final String RESPONSE_SCOPE = String.join(".", ModelConfigurations.SERVICE_SETTINGS, RESPONSE);
     private static final int DEFAULT_EMBEDDING_BATCH_SIZE = 10;
 
+    private static final TransportVersion INFERENCE_CUSTOM_SERVICE_ADDED = TransportVersion.fromName("inference_custom_service_added");
+    private static final TransportVersion ML_INFERENCE_CUSTOM_SERVICE_REMOVE_ERROR_PARSING = TransportVersion.fromName(
+        "ml_inference_custom_service_remove_error_parsing"
+    );
+    private static final TransportVersion ML_INFERENCE_CUSTOM_SERVICE_EMBEDDING_BATCH_SIZE = TransportVersion.fromName(
+        "ml_inference_custom_service_embedding_batch_size"
+    );
+    private static final TransportVersion ML_INFERENCE_CUSTOM_SERVICE_INPUT_TYPE = TransportVersion.fromName(
+        "ml_inference_custom_service_input_type"
+    );
+
     public static CustomServiceSettings fromMap(Map<String, Object> map, ConfigurationParseContext context, TaskType taskType) {
         ValidationException validationException = new ValidationException();
 
         var textEmbeddingSettings = TextEmbeddingSettings.fromMap(map, taskType, validationException);
 
-        String url = extractRequiredString(map, URL, ModelConfigurations.SERVICE_SETTINGS, validationException);
+        String url = extractRequiredString(map, ServiceFields.URL, ModelConfigurations.SERVICE_SETTINGS, validationException);
 
         var queryParams = QueryParameters.fromMap(map, validationException);
 
@@ -113,9 +123,7 @@ public class CustomServiceSettings extends FilteredXContentObject implements Ser
         throwIfNotEmptyMap(jsonParserMap, JSON_PARSER, NAME);
         throwIfNotEmptyMap(responseParserMap, RESPONSE, NAME);
 
-        if (validationException.validationErrors().isEmpty() == false) {
-            throw validationException;
-        }
+        validationException.throwIfValidationErrorsExist();
 
         return new CustomServiceSettings(
             textEmbeddingSettings,
@@ -280,22 +288,19 @@ public class CustomServiceSettings extends FilteredXContentObject implements Ser
         responseJsonParser = in.readNamedWriteable(CustomResponseParser.class);
         rateLimitSettings = new RateLimitSettings(in);
 
-        if (in.getTransportVersion().before(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_REMOVE_ERROR_PARSING)
-            && in.getTransportVersion().isPatchFrom(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_REMOVE_ERROR_PARSING_8_19) == false) {
+        if (in.getTransportVersion().supports(ML_INFERENCE_CUSTOM_SERVICE_REMOVE_ERROR_PARSING) == false) {
             // Read the error parsing fields for backwards compatibility
             in.readString();
             in.readString();
         }
 
-        if (in.getTransportVersion().onOrAfter(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_EMBEDDING_BATCH_SIZE)
-            || in.getTransportVersion().isPatchFrom(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_EMBEDDING_BATCH_SIZE_8_19)) {
+        if (in.getTransportVersion().supports(ML_INFERENCE_CUSTOM_SERVICE_EMBEDDING_BATCH_SIZE)) {
             batchSize = in.readVInt();
         } else {
             batchSize = DEFAULT_EMBEDDING_BATCH_SIZE;
         }
 
-        if (in.getTransportVersion().onOrAfter(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_INPUT_TYPE)
-            || in.getTransportVersion().isPatchFrom(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_INPUT_TYPE_8_19)) {
+        if (in.getTransportVersion().supports(ML_INFERENCE_CUSTOM_SERVICE_INPUT_TYPE)) {
             inputTypeTranslator = new InputTypeTranslator(in);
         } else {
             inputTypeTranslator = InputTypeTranslator.EMPTY_TRANSLATOR;
@@ -330,6 +335,10 @@ public class CustomServiceSettings extends FilteredXContentObject implements Ser
 
     public Integer getMaxInputTokens() {
         return textEmbeddingSettings.maxInputTokens;
+    }
+
+    TextEmbeddingSettings getTextEmbeddingSettings() {
+        return textEmbeddingSettings;
     }
 
     public String getUrl() {
@@ -387,7 +396,7 @@ public class CustomServiceSettings extends FilteredXContentObject implements Ser
     @Override
     public XContentBuilder toXContentFragmentOfExposedFields(XContentBuilder builder, Params params) throws IOException {
         textEmbeddingSettings.toXContent(builder, params);
-        builder.field(URL, url);
+        builder.field(ServiceFields.URL, url);
 
         if (headers.isEmpty() == false) {
             builder.field(HEADERS, headers);
@@ -420,13 +429,12 @@ public class CustomServiceSettings extends FilteredXContentObject implements Ser
     @Override
     public TransportVersion getMinimalSupportedVersion() {
         assert false : "should never be called when supportsVersion is used";
-        return TransportVersions.INFERENCE_CUSTOM_SERVICE_ADDED;
+        return INFERENCE_CUSTOM_SERVICE_ADDED;
     }
 
     @Override
     public boolean supportsVersion(TransportVersion version) {
-        return version.onOrAfter(TransportVersions.INFERENCE_CUSTOM_SERVICE_ADDED)
-            || version.isPatchFrom(TransportVersions.INFERENCE_CUSTOM_SERVICE_ADDED_8_19);
+        return version.supports(INFERENCE_CUSTOM_SERVICE_ADDED);
     }
 
     @Override
@@ -439,20 +447,17 @@ public class CustomServiceSettings extends FilteredXContentObject implements Ser
         out.writeNamedWriteable(responseJsonParser);
         rateLimitSettings.writeTo(out);
 
-        if (out.getTransportVersion().before(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_REMOVE_ERROR_PARSING)
-            && out.getTransportVersion().isPatchFrom(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_REMOVE_ERROR_PARSING_8_19) == false) {
+        if (out.getTransportVersion().supports(ML_INFERENCE_CUSTOM_SERVICE_REMOVE_ERROR_PARSING) == false) {
             // Write empty strings for backwards compatibility for the error parsing fields
             out.writeString("");
             out.writeString("");
         }
 
-        if (out.getTransportVersion().onOrAfter(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_EMBEDDING_BATCH_SIZE)
-            || out.getTransportVersion().isPatchFrom(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_EMBEDDING_BATCH_SIZE_8_19)) {
+        if (out.getTransportVersion().supports(ML_INFERENCE_CUSTOM_SERVICE_EMBEDDING_BATCH_SIZE)) {
             out.writeVInt(batchSize);
         }
 
-        if (out.getTransportVersion().onOrAfter(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_INPUT_TYPE)
-            || out.getTransportVersion().isPatchFrom(TransportVersions.ML_INFERENCE_CUSTOM_SERVICE_INPUT_TYPE_8_19)) {
+        if (out.getTransportVersion().supports(ML_INFERENCE_CUSTOM_SERVICE_INPUT_TYPE)) {
             inputTypeTranslator.writeTo(out);
         }
     }
@@ -498,7 +503,7 @@ public class CustomServiceSettings extends FilteredXContentObject implements Ser
         }
 
         return switch (taskType) {
-            case TEXT_EMBEDDING -> TextEmbeddingResponseParser.fromMap(responseParserMap, RESPONSE_SCOPE, validationException);
+            case TEXT_EMBEDDING -> DenseEmbeddingResponseParser.fromMap(responseParserMap, RESPONSE_SCOPE, validationException);
             case SPARSE_EMBEDDING -> SparseEmbeddingResponseParser.fromMap(responseParserMap, RESPONSE_SCOPE, validationException);
             case RERANK -> RerankResponseParser.fromMap(responseParserMap, RESPONSE_SCOPE, validationException);
             case COMPLETION -> CompletionResponseParser.fromMap(responseParserMap, RESPONSE_SCOPE, validationException);

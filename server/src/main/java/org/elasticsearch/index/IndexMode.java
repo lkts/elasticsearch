@@ -9,7 +9,6 @@
 
 package org.elasticsearch.index;
 
-import org.elasticsearch.TransportVersions;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.metadata.MetadataCreateDataStreamService;
 import org.elasticsearch.cluster.metadata.ProjectMetadata;
@@ -35,7 +34,6 @@ import org.elasticsearch.index.mapper.RoutingFieldMapper;
 import org.elasticsearch.index.mapper.RoutingFields;
 import org.elasticsearch.index.mapper.RoutingPathFields;
 import org.elasticsearch.index.mapper.SourceFieldMapper;
-import org.elasticsearch.index.mapper.SourceToParse;
 import org.elasticsearch.index.mapper.TimeSeriesIdFieldMapper;
 import org.elasticsearch.index.mapper.TimeSeriesRoutingHashFieldMapper;
 import org.elasticsearch.index.mapper.TsidExtractingIdFieldMapper;
@@ -113,7 +111,7 @@ public enum IndexMode {
         }
 
         @Override
-        public RoutingFields buildRoutingFields(IndexSettings settings, SourceToParse source) {
+        public RoutingFields buildRoutingFields(IndexSettings settings) {
             return RoutingFields.Noop.INSTANCE;
         }
 
@@ -129,11 +127,6 @@ public enum IndexMode {
         public SourceFieldMapper.Mode defaultSourceMode() {
             return SourceFieldMapper.Mode.STORED;
         }
-
-        @Override
-        public boolean useDefaultPostingsFormat() {
-            return true;
-        }
     },
     TIME_SERIES("time_series") {
         @Override
@@ -141,8 +134,11 @@ public enum IndexMode {
             if (settings.get(IndexMetadata.INDEX_ROUTING_PARTITION_SIZE_SETTING) != Integer.valueOf(1)) {
                 throw new IllegalArgumentException(error(IndexMetadata.INDEX_ROUTING_PARTITION_SIZE_SETTING));
             }
+
+            var settingsWithIndexMode = Settings.builder().put(IndexSettings.MODE.getKey(), getName()).build();
+
             for (Setting<?> unsupported : TIME_SERIES_UNSUPPORTED) {
-                if (false == Objects.equals(unsupported.getDefault(Settings.EMPTY), settings.get(unsupported))) {
+                if (false == Objects.equals(unsupported.getDefault(settingsWithIndexMode), settings.get(unsupported))) {
                     throw new IllegalArgumentException(error(unsupported));
                 }
             }
@@ -217,13 +213,15 @@ public enum IndexMode {
         }
 
         @Override
-        public RoutingFields buildRoutingFields(IndexSettings settings, SourceToParse source) {
-            if (source.tsid() != null) {
-                // If the source already has a _tsid field, we don't need to extract routing from the source.
+        public RoutingFields buildRoutingFields(IndexSettings settings) {
+            IndexRouting indexRouting = settings.getIndexRouting();
+            if (indexRouting instanceof IndexRouting.ExtractFromSource.ForRoutingPath forRoutingPath) {
+                return new RoutingPathFields(forRoutingPath.builder());
+            } else if (indexRouting instanceof IndexRouting.ExtractFromSource.ForIndexDimensions) {
                 return RoutingFields.Noop.INSTANCE;
+            } else {
+                throw new IllegalStateException("Index routing strategy not supported for index_mode=time_series: " + indexRouting);
             }
-            IndexRouting.ExtractFromSource routing = (IndexRouting.ExtractFromSource) settings.getIndexRouting();
-            return new RoutingPathFields(routing.builder());
         }
 
         @Override
@@ -241,6 +239,16 @@ public enum IndexMode {
         @Override
         public SourceFieldMapper.Mode defaultSourceMode() {
             return SourceFieldMapper.Mode.SYNTHETIC;
+        }
+
+        @Override
+        public boolean useTimeSeriesDocValuesCodec() {
+            return true;
+        }
+
+        @Override
+        public boolean useEs812PostingsFormat() {
+            return true;
         }
     },
     LOGSDB("logsdb") {
@@ -302,7 +310,7 @@ public enum IndexMode {
         }
 
         @Override
-        public RoutingFields buildRoutingFields(IndexSettings settings, SourceToParse source) {
+        public RoutingFields buildRoutingFields(IndexSettings settings) {
             return RoutingFields.Noop.INSTANCE;
         }
 
@@ -326,6 +334,16 @@ public enum IndexMode {
         @Override
         public String getDefaultCodec() {
             return CodecService.BEST_COMPRESSION_CODEC;
+        }
+
+        @Override
+        public boolean useTimeSeriesDocValuesCodec() {
+            return true;
+        }
+
+        @Override
+        public boolean useEs812PostingsFormat() {
+            return true;
         }
     },
     LOOKUP("lookup") {
@@ -383,7 +401,7 @@ public enum IndexMode {
         }
 
         @Override
-        public RoutingFields buildRoutingFields(IndexSettings settings, SourceToParse source) {
+        public RoutingFields buildRoutingFields(IndexSettings settings) {
             return RoutingFields.Noop.INSTANCE;
         }
 
@@ -539,7 +557,7 @@ public enum IndexMode {
     /**
      * How {@code time_series_dimension} fields are handled by indices in this mode.
      */
-    public abstract RoutingFields buildRoutingFields(IndexSettings settings, SourceToParse source);
+    public abstract RoutingFields buildRoutingFields(IndexSettings settings);
 
     /**
      * @return Whether timestamps should be validated for being withing the time range of an index.
@@ -561,9 +579,17 @@ public enum IndexMode {
     }
 
     /**
-     * Whether the default posting format (for inverted indices) from Lucene should be used.
+     * Whether by default to use the ES 8.12 {@link org.apache.lucene.codecs.PostingsFormat}. This is a historical PostingsFormat we used
+     * for all indices by default. However, starting with Lucene 10.3, we began using a new, more modern format, for standard indices.
      */
-    public boolean useDefaultPostingsFormat() {
+    public boolean useEs812PostingsFormat() {
+        return false;
+    }
+
+    /**
+     * Whether by default to use the time series doc values codec.
+     */
+    public boolean useTimeSeriesDocValuesCodec() {
         return false;
     }
 
@@ -571,7 +597,7 @@ public enum IndexMode {
      * Parse a string into an {@link IndexMode}.
      */
     public static IndexMode fromString(String value) {
-        return switch (value) {
+        return switch (value.toLowerCase(Locale.ROOT)) {
             case "standard" -> IndexMode.STANDARD;
             case "time_series" -> IndexMode.TIME_SERIES;
             case "logsdb" -> IndexMode.LOGSDB;
@@ -584,6 +610,15 @@ public enum IndexMode {
                     + "]"
             );
         };
+    }
+
+    /**
+     * Retrieves the `index.mode` setting and parses it to {@link IndexMode}. When missing, it defaults to standard.
+     * Note: This should be used only in cases where it is not relevant to validate the index settings.
+     */
+    public static IndexMode fromIndexSettingsWithoutValidation(Settings settings) {
+        String indexModeLabel = settings.get(IndexSettings.MODE.getKey());
+        return indexModeLabel == null ? IndexMode.STANDARD : IndexMode.fromString(indexModeLabel);
     }
 
     public static IndexMode readFrom(StreamInput in) throws IOException {
@@ -602,7 +637,7 @@ public enum IndexMode {
             case STANDARD -> 0;
             case TIME_SERIES -> 1;
             case LOGSDB -> 2;
-            case LOOKUP -> out.getTransportVersion().onOrAfter(TransportVersions.V_8_17_0) ? 3 : 0;
+            case LOOKUP -> 3;
         };
         out.writeByte((byte) code);
     }

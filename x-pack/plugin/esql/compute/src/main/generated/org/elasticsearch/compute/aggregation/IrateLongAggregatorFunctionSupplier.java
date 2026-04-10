@@ -17,8 +17,11 @@ import org.elasticsearch.compute.operator.DriverContext;
 public final class IrateLongAggregatorFunctionSupplier implements AggregatorFunctionSupplier {
   private final boolean isDelta;
 
-  public IrateLongAggregatorFunctionSupplier(boolean isDelta) {
+  private final boolean isDateNanos;
+
+  public IrateLongAggregatorFunctionSupplier(boolean isDelta, boolean isDateNanos) {
     this.isDelta = isDelta;
+    this.isDateNanos = isDateNanos;
   }
 
   @Override
@@ -39,11 +42,11 @@ public final class IrateLongAggregatorFunctionSupplier implements AggregatorFunc
   @Override
   public IrateLongGroupingAggregatorFunction groupingAggregator(DriverContext driverContext,
       List<Integer> channels) {
-    return IrateLongGroupingAggregatorFunction.create(channels, driverContext, isDelta);
+    return new IrateLongGroupingAggregatorFunction(channels, driverContext, isDelta, isDateNanos);
   }
 
   @Override
   public String describe() {
-    return "irate of longs";
+    return IrateLongAggregator.describe();
   }
 }

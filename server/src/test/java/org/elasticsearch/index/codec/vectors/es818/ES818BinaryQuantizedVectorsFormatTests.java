@@ -40,11 +40,9 @@ import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.SoftDeletesRetentionMergePolicy;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
-import org.apache.lucene.misc.store.DirectIODirectory;
 import org.apache.lucene.search.FieldExistsQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
-import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
@@ -54,32 +52,21 @@ import org.apache.lucene.search.join.CheckJoinIndex;
 import org.apache.lucene.search.join.DiversifyingChildrenFloatKnnVectorQuery;
 import org.apache.lucene.search.join.QueryBitSetProducer;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.FSDirectory;
-import org.apache.lucene.store.IOContext;
-import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
 import org.apache.lucene.tests.store.MockDirectoryWrapper;
 import org.apache.lucene.tests.util.TestUtil;
 import org.elasticsearch.common.logging.LogConfigurator;
-import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.index.IndexModule;
-import org.elasticsearch.index.IndexSettings;
+import org.elasticsearch.common.lucene.search.Queries;
 import org.elasticsearch.index.codec.vectors.BQVectorUtils;
 import org.elasticsearch.index.codec.vectors.OptimizedScalarQuantizer;
-import org.elasticsearch.index.shard.ShardId;
-import org.elasticsearch.index.shard.ShardPath;
-import org.elasticsearch.index.store.FsDirectoryFactory;
-import org.elasticsearch.test.IndexSettingsModule;
+import org.elasticsearch.simdvec.ESVectorUtil;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
-import java.util.OptionalLong;
 
 import static java.lang.String.format;
 import static org.apache.lucene.index.VectorSimilarityFunction.DOT_PRODUCT;
@@ -94,7 +81,12 @@ public class ES818BinaryQuantizedVectorsFormatTests extends BaseKnnVectorsFormat
         LogConfigurator.configureESLogging(); // native access requires logging to be initialized
     }
 
-    static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new ES818BinaryQuantizedVectorsFormat());
+    @Override
+    protected boolean supportsFloatVectorFallback() {
+        return false;
+    }
+
+    static final Codec codec = TestUtil.alwaysKnnVectorsFormat(new ES818BinaryQuantizedRWVectorsFormat());
 
     @Override
     protected Codec getCodec() {
@@ -138,7 +130,7 @@ public class ES818BinaryQuantizedVectorsFormatTests extends BaseKnnVectorsFormat
         VectorSimilarityFunction similarityFunction = VectorSimilarityFunction.EUCLIDEAN;
         try (Directory d = newDirectory()) {
             IndexWriterConfig iwc = newIndexWriterConfig().setCodec(codec);
-            iwc.setMergePolicy(new SoftDeletesRetentionMergePolicy("soft_delete", MatchAllDocsQuery::new, iwc.getMergePolicy()));
+            iwc.setMergePolicy(new SoftDeletesRetentionMergePolicy("soft_delete", () -> Queries.ALL_DOCS_INSTANCE, iwc.getMergePolicy()));
             try (IndexWriter w = new IndexWriter(d, iwc)) {
                 List<Document> toAdd = new ArrayList<>();
                 for (int j = 1; j <= 5; j++) {
@@ -269,26 +261,28 @@ public class ES818BinaryQuantizedVectorsFormatTests extends BaseKnnVectorsFormat
                             (byte) 1,
                             centroid
                         );
-                        BQVectorUtils.packAsBinary(quantizedVector, expectedVector);
+                        ESVectorUtil.packAsBinary(quantizedVector, expectedVector);
                         assertArrayEquals(expectedVector, qvectorValues.vectorValue(docIndexIterator.index()));
-                        assertEquals(corrections, qvectorValues.getCorrectiveTerms(docIndexIterator.index()));
+                        assertQuantizationResultEquals(corrections, qvectorValues.getCorrectiveTerms(docIndexIterator.index()));
                     }
                 }
             }
         }
     }
 
+    static void assertQuantizationResultEquals(
+        OptimizedScalarQuantizer.QuantizationResult expected,
+        OptimizedScalarQuantizer.QuantizationResult obj
+    ) {
+        assertEquals(expected.lowerInterval(), obj.lowerInterval(), 0.000001f);
+        assertEquals(expected.upperInterval(), obj.upperInterval(), 0.000001f);
+        assertEquals(expected.additionalCorrection(), obj.additionalCorrection(), 0.00001f);
+        assertEquals(expected.quantizedComponentSum(), obj.quantizedComponentSum());
+    }
+
     public void testSimpleOffHeapSize() throws IOException {
         try (Directory dir = newDirectory()) {
             testSimpleOffHeapSizeImpl(dir, newIndexWriterConfig(), true);
-        }
-    }
-
-    public void testSimpleOffHeapSizeFSDir() throws IOException {
-        checkDirectIOSupported();
-        var config = newIndexWriterConfig().setUseCompoundFile(false); // avoid compound files to allow directIO
-        try (Directory dir = newFSDirectory()) {
-            testSimpleOffHeapSizeImpl(dir, config, false);
         }
     }
 
@@ -330,40 +324,5 @@ public class ES818BinaryQuantizedVectorsFormatTests extends BaseKnnVectorsFormat
             dir = new MockDirectoryWrapper(random(), dir);
         }
         return dir;
-    }
-
-    private Directory newFSDirectory() throws IOException {
-        Settings settings = Settings.builder()
-            .put(IndexModule.INDEX_STORE_TYPE_SETTING.getKey(), IndexModule.Type.HYBRIDFS.name().toLowerCase(Locale.ROOT))
-            .build();
-        IndexSettings idxSettings = IndexSettingsModule.newIndexSettings("foo", settings);
-        Path tempDir = createTempDir().resolve(idxSettings.getUUID()).resolve("0");
-        Files.createDirectories(tempDir);
-        ShardPath path = new ShardPath(false, tempDir, tempDir, new ShardId(idxSettings.getIndex(), 0));
-        Directory dir = (new FsDirectoryFactory()).newDirectory(idxSettings, path);
-        if (random().nextBoolean()) {
-            dir = new MockDirectoryWrapper(random(), dir);
-        }
-        return dir;
-    }
-
-    static void checkDirectIOSupported() {
-        assumeTrue("Direct IO is not enabled", ES818BinaryQuantizedVectorsFormat.USE_DIRECT_IO);
-
-        Path path = createTempDir("directIOProbe");
-        try (Directory dir = open(path); IndexOutput out = dir.createOutput("out", IOContext.DEFAULT)) {
-            out.writeString("test");
-        } catch (IOException e) {
-            assumeNoException("test requires a filesystem that supports Direct IO", e);
-        }
-    }
-
-    static DirectIODirectory open(Path path) throws IOException {
-        return new DirectIODirectory(FSDirectory.open(path)) {
-            @Override
-            protected boolean useDirectIO(String name, IOContext context, OptionalLong fileLength) {
-                return true;
-            }
-        };
     }
 }
