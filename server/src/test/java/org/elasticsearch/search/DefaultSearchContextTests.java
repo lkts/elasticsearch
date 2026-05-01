@@ -189,7 +189,9 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
                 indexShard,
                 searcherSupplier.get(),
                 randomNonNegativeLong(),
-                false,null, null
+                false,
+                null,
+                null
             );
             DefaultSearchContext contextWithoutScroll = new DefaultSearchContext(
                 readerWithoutScroll,
@@ -309,7 +311,8 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
                 searcherSupplier.get(),
                 randomNonNegativeLong(),
                 false,
-                null, null
+                null,
+                null
             ) {
                 @Override
                 public ScrollContext scrollContext() {
@@ -392,7 +395,9 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
                     indexShard,
                     searcherSupplier.get(),
                     randomNonNegativeLong(),
-                    false,null, null
+                    false,
+                    null,
+                    null
                 );
             }
 
@@ -468,7 +473,9 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
                 indexShard,
                 searcherSupplier,
                 randomNonNegativeLong(),
-                false,null, null
+                false,
+                null,
+                null
             );
             DefaultSearchContext context = new DefaultSearchContext(
                 readerContext,
@@ -1124,7 +1131,9 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
                 indexShard,
                 searcherSupplier.get(),
                 randomNonNegativeLong(),
-                false,null, null
+                false,
+                null,
+                null
             );
             return new DefaultSearchContext(
                 readerContext,

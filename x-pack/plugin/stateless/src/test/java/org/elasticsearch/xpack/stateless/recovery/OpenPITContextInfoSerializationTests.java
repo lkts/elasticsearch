@@ -8,6 +8,7 @@
 package org.elasticsearch.xpack.stateless.recovery;
 
 import org.elasticsearch.action.search.SearchContextIdForNode;
+import org.elasticsearch.cluster.routing.SplitShardCountSummary;
 import org.elasticsearch.common.UUIDs;
 import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.core.Tuple;
@@ -36,7 +37,9 @@ public class OpenPITContextInfoSerializationTests extends AbstractWireSerializin
             randomAlphaOfLength(10),
             randomLongBetween(0, 1000),
             createSearchContextId(),
-            createRandomMetadata()
+            createRandomMetadata(),
+            null,
+            SplitShardCountSummary.UNSET
         );
     }
 
@@ -73,14 +76,18 @@ public class OpenPITContextInfoSerializationTests extends AbstractWireSerializin
                 instance.segmentsFileName(),
                 instance.keepAlive(),
                 instance.contextId(),
-                instance.metadata()
+                instance.metadata(),
+                null,
+                SplitShardCountSummary.UNSET
             );
             case 1 -> new OpenPITContextInfo(
                 instance.shardId(),
                 randomValueOtherThan(instance.segmentsFileName(), () -> randomAlphaOfLength(10)),
                 instance.keepAlive(),
                 instance.contextId(),
-                instance.metadata()
+                instance.metadata(),
+                null,
+                SplitShardCountSummary.UNSET
 
             );
             case 2 -> new OpenPITContextInfo(
@@ -88,21 +95,27 @@ public class OpenPITContextInfoSerializationTests extends AbstractWireSerializin
                 instance.segmentsFileName(),
                 randomValueOtherThan(instance.keepAlive(), () -> randomLongBetween(0, 1000)),
                 instance.contextId(),
-                instance.metadata()
+                instance.metadata(),
+                null,
+                SplitShardCountSummary.UNSET
             );
             case 3 -> new OpenPITContextInfo(
                 instance.shardId(),
                 instance.segmentsFileName(),
                 instance.keepAlive(),
                 randomValueOtherThan(instance.contextId(), this::createSearchContextId),
-                instance.metadata()
+                instance.metadata(),
+                null,
+                SplitShardCountSummary.UNSET
             );
             case 4 -> new OpenPITContextInfo(
                 instance.shardId(),
                 instance.segmentsFileName(),
                 instance.keepAlive(),
                 instance.contextId(),
-                createRandomMetadata()
+                createRandomMetadata(),
+                null,
+                SplitShardCountSummary.UNSET
             );
             default -> throw new IllegalStateException("Unexpected value " + i);
         };

@@ -30,6 +30,7 @@ import org.elasticsearch.action.search.SearchType;
 import org.elasticsearch.action.support.TransportActions;
 import org.elasticsearch.cluster.ProjectState;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver.ResolvedExpression;
+import org.elasticsearch.cluster.metadata.IndexReshardingMetadata;
 import org.elasticsearch.cluster.routing.RecoverySource;
 import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.routing.SplitShardCountSummary;
@@ -1522,7 +1523,16 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 decreaseScrollContexts = null;
             } else {
                 final ShardSearchContextId id = new ShardSearchContextId(sessionId, idGenerator.incrementAndGet(), reader.getSearcherId());
-                readerContext = new ReaderContext(id, indexService, shard, reader, keepAliveInMillis, true, null, request.getSplitShardCountSummary());
+                readerContext = new ReaderContext(
+                    id,
+                    indexService,
+                    shard,
+                    reader,
+                    keepAliveInMillis,
+                    true,
+                    null,
+                    request.getSplitShardCountSummary()
+                );
             }
             reader = null;
             final ReaderContext finalReaderContext = readerContext;
@@ -1615,17 +1625,32 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 //
                 // If resharding metadata gets removed, then again we may apply noop filters
                 // when PIT is relocated but there is no correctness issues.
+                IndexReshardingMetadata reshardingMetadataForContext = shard.indexSettings().getIndexMetadata().getReshardingMetadata();
+
                 searcherSupplier = shard.acquireExternalSearcherSupplier(splitShardCountSummary);
                 final ShardSearchContextId id = new ShardSearchContextId(
                     sessionId,
                     idGenerator.incrementAndGet(),
                     searcherSupplier.getSearcherId()
                 );
-                readerContext = new ReaderContext(id, indexService, shard, searcherSupplier, keepAlive.millis(), false, null, splitShardCountSummary);
+                readerContext = new ReaderContext(
+                    id,
+                    indexService,
+                    shard,
+                    searcherSupplier,
+                    keepAlive.millis(),
+                    false,
+                    null,
+                    splitShardCountSummary
+                );
                 final ReaderContext finalReaderContext = readerContext;
                 searcherSupplier = null; // transfer ownership to reader context
                 searchOperationListener.onNewReaderContext(readerContext);
                 readerContext.addOnClose(() -> searchOperationListener.onFreeReaderContext(finalReaderContext));
+
+                readerContext.putInContext("bla", reshardingMetadataForContext);
+                readerContext.putInContext("blu", splitShardCountSummary);
+
                 logger.debug(
                     "Opening new reader context [{}] on node [{}]",
                     readerContext.id(),
@@ -1684,7 +1709,18 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         final IndexShard indexShard = indexService.getShard(request.shardId().getId());
         final Engine.SearcherSupplier reader = indexShard.acquireExternalSearcherSupplier(request.getSplitShardCountSummary());
         final ShardSearchContextId id = new ShardSearchContextId(sessionId, idGenerator.incrementAndGet(), reader.getSearcherId());
-        try (ReaderContext readerContext = new ReaderContext(id, indexService, indexShard, reader, -1L, true, null, request.getSplitShardCountSummary())) {
+        try (
+            ReaderContext readerContext = new ReaderContext(
+                id,
+                indexService,
+                indexShard,
+                reader,
+                -1L,
+                true,
+                null,
+                request.getSplitShardCountSummary()
+            )
+        ) {
             // Use ResultsType.QUERY so that the created search context can execute queries correctly.
             DefaultSearchContext searchContext = createSearchContext(readerContext, request, timeout, ResultsType.QUERY);
             searchContext.addReleasable(readerContext.markAsUsed(0L));

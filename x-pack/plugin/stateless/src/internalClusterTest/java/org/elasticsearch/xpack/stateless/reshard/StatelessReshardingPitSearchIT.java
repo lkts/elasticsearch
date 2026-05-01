@@ -35,6 +35,7 @@ import java.util.Set;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.elasticsearch.index.IndexSettings.INDEX_REFRESH_INTERVAL_SETTING;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertResponse;
@@ -72,7 +73,7 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
         // Search works before resharding.
         refresh(indexName);
         var initialPitId = openPit(searchCoordinator, indexName, 1);
-        assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
+        initialPitId = assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
 
         CountDownLatch handOffStarted = new CountDownLatch(multiple - 1); // (multiple - 1) target shards
         CyclicBarrier stateTransitionBlock = new CyclicBarrier(multiple); // (multiple - 1) target shards + the test itself
@@ -101,13 +102,13 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
         safeAwait(handOffStarted);
 
         // We can still use the initial PIT.
-        assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
+        initialPitId = assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
 
         // We can't index any documents since the handoff is in progress and can't refresh for the same reason.
         // We won't be testing that here since it is covered in other tests.
         // But we can open a new PIT here which should be identical to the initial one.
         var duringHandoffPitId = openPit(searchCoordinator, indexName, 1);
-        assertPit(searchCoordinator, duringHandoffPitId, 1, initialIndexedDocuments.keySet());
+        duringHandoffPitId = assertPit(searchCoordinator, duringHandoffPitId, 1, initialIndexedDocuments.keySet());
 
         // unblock HANDOFF transition
         safeAwait(stateTransitionBlock);
@@ -133,10 +134,10 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
 
         // We can also open another PIT.
         var afterHandoffPitId = openPit(searchCoordinator, indexName, 1);
-        assertPit(searchCoordinator, afterHandoffPitId, 1, initialIndexedDocuments.keySet());
+        afterHandoffPitId = assertPit(searchCoordinator, afterHandoffPitId, 1, initialIndexedDocuments.keySet());
         // All existing PITs are still working too.
-        assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
-        assertPit(searchCoordinator, duringHandoffPitId, 1, initialIndexedDocuments.keySet());
+        initialPitId = assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
+        duringHandoffPitId = assertPit(searchCoordinator, duringHandoffPitId, 1, initialIndexedDocuments.keySet());
 
         // unblock SPLIT transition
         safeAwait(stateTransitionBlock);
@@ -160,16 +161,16 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
 
         // And open another PIT now with two shards.
         var splitPitId = openPit(searchCoordinator, indexName, 2);
-        assertPit(searchCoordinator, splitPitId, 2, allIndexedDocuments.keySet());
+        splitPitId = assertPit(searchCoordinator, splitPitId, 2, allIndexedDocuments.keySet());
 
         // Indexing also works as expected.
         var splitIndexedDocuments = indexDocuments(indexName, 2, documentsPerShardPerRound, "split", wouldBeAfterSplitRouting);
         allIndexedDocuments.putAll(splitIndexedDocuments);
 
         // All existing PITs are still working too.
-        assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
-        assertPit(searchCoordinator, duringHandoffPitId, 1, initialIndexedDocuments.keySet());
-        assertPit(searchCoordinator, afterHandoffPitId, 1, initialIndexedDocuments.keySet());
+        initialPitId = assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
+        duringHandoffPitId = assertPit(searchCoordinator, duringHandoffPitId, 1, initialIndexedDocuments.keySet());
+        afterHandoffPitId = assertPit(searchCoordinator, afterHandoffPitId, 1, initialIndexedDocuments.keySet());
 
         // unblock DONE transition
         safeAwait(stateTransitionBlock);
@@ -196,13 +197,13 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
         refresh(indexName);
 
         var donePitId = openPit(searchCoordinator, indexName, 2);
-        assertPit(searchCoordinator, donePitId, 2, allIndexedDocuments.keySet());
+        donePitId = assertPit(searchCoordinator, donePitId, 2, allIndexedDocuments.keySet());
 
         // All existing PITs are still working too.
-        assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
-        assertPit(searchCoordinator, duringHandoffPitId, 1, initialIndexedDocuments.keySet());
-        assertPit(searchCoordinator, afterHandoffPitId, 1, initialIndexedDocuments.keySet());
-        assertPit(searchCoordinator, splitPitId, 2, allIndexedDocumentsAtSplit);
+        initialPitId = assertPit(searchCoordinator, initialPitId, 1, initialIndexedDocuments.keySet());
+        duringHandoffPitId = assertPit(searchCoordinator, duringHandoffPitId, 1, initialIndexedDocuments.keySet());
+        afterHandoffPitId = assertPit(searchCoordinator, afterHandoffPitId, 1, initialIndexedDocuments.keySet());
+        splitPitId = assertPit(searchCoordinator, splitPitId, 2, allIndexedDocumentsAtSplit);
 
         waitForReshardCompletion(index);
 
@@ -216,7 +217,7 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
     public void testPitRelocationDuringReshard() {
         var masterNode = startMasterOnlyNode();
         String indexNode = startIndexNode();
-        var searchNodes = startSearchNodes(2);
+        startSearchNodes(2);
         String searchCoordinator = startSearchNode();
         ensureStableCluster(5);
 
@@ -232,7 +233,6 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
         // We re-create the metadata directly in test in order to have access to after-reshard routing.
         var wouldBeMetadata = IndexMetadata.builder(indexMetadata).reshardAddShards(multiple).build();
         var wouldBeAfterSplitRouting = IndexRouting.fromIndexMetadata(wouldBeMetadata);
-
 
         int documentsPerShardPerRound = randomIntBetween(5, 10);
         var indexedDocuments = indexDocuments(indexName, 2, documentsPerShardPerRound, "all", wouldBeAfterSplitRouting);
@@ -271,21 +271,174 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
         );
 
         var pit = openPit(searchCoordinator, indexName, 2);
-        assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
+        pit = assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
 
         // Relocate the source search shard to test that search filters work after PIT relocation.
         var clusterState = internalCluster().clusterService(masterNode).state();
         var project = clusterState.metadata().projectFor(index);
-        var sourceSearchShardNodeId = clusterState.routingTable(project.id()).shardRoutingTable(indexName, 0).unpromotableShards().get(0).currentNodeId();
+        var sourceSearchShardNodeId = clusterState.routingTable(project.id())
+            .shardRoutingTable(indexName, 0)
+            .unpromotableShards()
+            .get(0)
+            .currentNodeId();
         var sourceSearchShardNodeName = clusterState.nodes().get(sourceSearchShardNodeId).getName();
         updateIndexSettings(Settings.builder().put("index.routing.allocation.exclude._name", sourceSearchShardNodeName));
         ensureGreen(indexName);
 
         // And PIT should still work.
-        assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
+        pit = assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
 
         moveToDoneBlocked.countDown();
         waitForReshardCompletion(index);
+
+        closePit(pit);
+    }
+
+    public void testLongLivedPitRelocation() {
+        var masterNode = startMasterOnlyNode();
+        startIndexNode();
+        startSearchNodes(2);
+        String searchCoordinator = startSearchNode();
+        ensureStableCluster(5);
+
+        final String indexName = randomIndexName();
+        // Disable periodic refresh because we want to explicitly control it.
+        createIndex(indexName, indexSettings(1, 1).put(INDEX_REFRESH_INTERVAL_SETTING.getKey(), TimeValue.MINUS_ONE).build());
+        ensureGreen(indexName);
+
+        var index = resolveIndex(indexName);
+        var indexMetadata = indexMetadata(internalCluster().clusterService(masterNode).state(), index);
+
+        // We re-create the metadata directly in test in order to have access to after-reshard routing.
+        var wouldBeMetadata = IndexMetadata.builder(indexMetadata).reshardAddShards(4).build();
+        var wouldBeAfterSplitRouting = IndexRouting.fromIndexMetadata(wouldBeMetadata);
+
+        int documentsPerShardPerRound = randomIntBetween(5, 10);
+        var indexedDocuments = indexDocuments(indexName, 4, documentsPerShardPerRound, "all", wouldBeAfterSplitRouting);
+
+        refresh(indexName);
+
+        var pit = openPit(searchCoordinator, indexName, 1);
+        pit = assertPit(searchCoordinator, pit, 1, indexedDocuments.keySet());
+
+        ReshardIndexRequest reshardRequest = new ReshardIndexRequest(indexName, 2);
+        client(masterNode).execute(TransportReshardAction.TYPE, reshardRequest).actionGet();
+        waitForReshardCompletion(index);
+
+        ReshardIndexRequest reshardRequest2 = new ReshardIndexRequest(indexName, 4);
+        client(masterNode).execute(TransportReshardAction.TYPE, reshardRequest2).actionGet();
+        waitForReshardCompletion(index);
+
+        ReshardingTestHelpers.checkNumberOfShardsSetting(client(masterNode), indexName, 4);
+
+        // PIT still works using the original shard that we started with
+        pit = assertPit(searchCoordinator, pit, 1, indexedDocuments.keySet());
+
+        // Relocate the source search shard to test that search filters work after PIT relocation.
+        var clusterState = internalCluster().clusterService(masterNode).state();
+        var project = clusterState.metadata().projectFor(index);
+        var sourceSearchShardNodeId = clusterState.routingTable(project.id())
+            .shardRoutingTable(indexName, 0)
+            .unpromotableShards()
+            .get(0)
+            .currentNodeId();
+        var sourceSearchShardNodeName = clusterState.nodes().get(sourceSearchShardNodeId).getName();
+        updateIndexSettings(Settings.builder().put("index.routing.allocation.exclude._name", sourceSearchShardNodeName));
+        ensureGreen(indexName);
+
+        // And still works even after relocation.
+        pit = assertPit(searchCoordinator, pit, 1, indexedDocuments.keySet());
+
+        closePit(pit);
+    }
+
+    public void testReshardedLongLivedPitRelocation() {
+        var masterNode = startMasterOnlyNode();
+        String indexNode = startIndexNode();
+        startSearchNodes(2);
+        String searchCoordinator = startSearchNode();
+        ensureStableCluster(5);
+
+        final String indexName = randomIndexName();
+        // Disable periodic refresh because we want to explicitly control it.
+        createIndex(indexName, indexSettings(1, 1).put(INDEX_REFRESH_INTERVAL_SETTING.getKey(), TimeValue.MINUS_ONE).build());
+        ensureGreen(indexName);
+
+        var index = resolveIndex(indexName);
+        var indexMetadata = indexMetadata(internalCluster().clusterService(masterNode).state(), index);
+
+        // We re-create the metadata directly in test in order to have access to after-reshard routing.
+        var wouldBeMetadata = IndexMetadata.builder(indexMetadata).reshardAddShards(4).build();
+        var wouldBeAfterSplitRouting = IndexRouting.fromIndexMetadata(wouldBeMetadata);
+
+        int documentsPerShardPerRound = randomIntBetween(5, 10);
+        var indexedDocuments = indexDocuments(indexName, 4, documentsPerShardPerRound, "all", wouldBeAfterSplitRouting);
+
+        refresh(indexName);
+
+        CountDownLatch moveToDoneAttempted = new CountDownLatch(1);
+        CountDownLatch moveToDoneBlocked = new CountDownLatch(1);
+        MockTransportService indexTransportService = MockTransportService.getInstance(indexNode);
+        indexTransportService.addSendBehavior((connection, requestId, action, request, options) -> {
+            if (TransportUpdateSplitTargetShardStateAction.TYPE.name().equals(action)) {
+                TransportRequest actualRequest = MasterNodeRequestHelper.unwrapTermOverride(request);
+
+                if (actualRequest instanceof SplitStateRequest splitStateRequest) {
+                    if (splitStateRequest.getNewTargetShardState() == IndexReshardingState.Split.TargetShardState.DONE) {
+                        moveToDoneAttempted.countDown();
+                        safeAwait(moveToDoneBlocked);
+                    }
+                }
+            }
+            connection.sendRequest(requestId, action, request, options);
+        });
+
+        ReshardIndexRequest reshardRequest = new ReshardIndexRequest(indexName, 2);
+        client(masterNode).execute(TransportReshardAction.TYPE, reshardRequest).actionGet();
+
+        safeAwait(moveToDoneAttempted);
+        awaitClusterState(
+            searchCoordinator,
+            clusterState -> clusterState.getMetadata()
+                .indexMetadata(index)
+                .getReshardingMetadata()
+                .getSplit()
+                .targetStates()
+                .allMatch(s -> s == IndexReshardingState.Split.TargetShardState.SPLIT)
+        );
+
+        // We get a PIT that uses two shard with search filters applied.
+        var pit = openPit(searchCoordinator, indexName, 2);
+        pit = assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
+
+        moveToDoneBlocked.countDown();
+        waitForReshardCompletion(index);
+
+        ReshardIndexRequest reshardRequest2 = new ReshardIndexRequest(indexName, 4);
+        client(masterNode).execute(TransportReshardAction.TYPE, reshardRequest2).actionGet();
+        waitForReshardCompletion(index);
+
+        ReshardingTestHelpers.checkNumberOfShardsSetting(client(masterNode), indexName, 4);
+
+        // PIT still works using two shards and filters.
+        pit = assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
+
+        // Relocate shard0 search shard to test that search filters work after PIT relocation.
+        var clusterState = internalCluster().clusterService(masterNode).state();
+        var project = clusterState.metadata().projectFor(index);
+        var sourceSearchShardNodeId = clusterState.routingTable(project.id())
+            .shardRoutingTable(indexName, 0)
+            .unpromotableShards()
+            .get(0)
+            .currentNodeId();
+        var sourceSearchShardNodeName = clusterState.nodes().get(sourceSearchShardNodeId).getName();
+        updateIndexSettings(Settings.builder().put("index.routing.allocation.exclude._name", sourceSearchShardNodeName));
+        ensureGreen(indexName);
+
+        // All good.
+        pit = assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
+
+        closePit(pit);
     }
 
     @Override
@@ -327,7 +480,7 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
         return response.getPointInTimeId();
     }
 
-    private void assertPit(String searchCoordinator, BytesReference pitId, int totalShards, Set<String> expectedDocuments) {
+    private BytesReference assertPit(String searchCoordinator, BytesReference pitId, int totalShards, Set<String> expectedDocuments) {
         var searchRequest = client(searchCoordinator).prepareSearch()
             .setQuery(QueryBuilders.matchAllQuery())
             .setSize(10000)
@@ -335,7 +488,11 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
             .setAllowPartialSearchResults(false)
             .setPointInTime(new PointInTimeBuilder(pitId));
 
+        AtomicReference<BytesReference> newPitId = new AtomicReference<>();
+
         assertResponse(searchRequest, response -> {
+            newPitId.set(response.pointInTimeId());
+
             final var shardCount = response.getTotalShards();
             assertEquals("unexpected shard count in search response", totalShards, shardCount);
             assertEquals("Wrong number of documents in PIT search response", expectedDocuments.size(), response.getHits().getHits().length);
@@ -346,6 +503,8 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
             }
             assertEquals("unexpected documents in PIT search response", expectedDocuments, ids);
         });
+
+        return newPitId.get();
     }
 
     private void closePit(BytesReference readerId) {

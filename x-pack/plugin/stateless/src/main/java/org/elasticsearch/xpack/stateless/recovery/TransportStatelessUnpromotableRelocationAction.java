@@ -410,7 +410,9 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
                                     indexCommit.getSegmentsFileName(),
                                     context.keepAlive(),
                                     new SearchContextIdForNode(null, clusterService.localNode().getId(), context.id()),
-                                    statelessCompoundCommit.commitFiles()
+                                    statelessCompoundCommit.commitFiles(),
+                                    context.getFromContext("bla"),
+                                    context.getFromContext("blu")
                                 )
                             )
                         );
@@ -496,14 +498,16 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
             String segmentsFileName,
             long keepAlive,
             SearchContextIdForNode contextId,
-            Map<String, BlobLocation> metadata
+            Map<String, BlobLocation> metadata,
+            IndexReshardingMetadata relocatedReshardingMetadata,
+            SplitShardCountSummary relocatedSplitShardCountSummary
         ) {
             this.shardId = shardId;
             this.segmentsFileName = segmentsFileName;
             this.keepAlive = keepAlive;
             this.contextId = contextId;
             this.metadata = metadata;
-            this.reshardingState = new OpenPITReshardingState(null, SplitShardCountSummary.UNSET);
+            this.reshardingState = new OpenPITReshardingState(relocatedReshardingMetadata, relocatedSplitShardCountSummary);
         }
 
         @Override

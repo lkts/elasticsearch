@@ -68,7 +68,9 @@ public class ReaderContext implements Releasable {
         IndexShard indexShard,
         Engine.SearcherSupplier searcherSupplier,
         long keepAliveInMillis,
-        boolean singleSession, IndexReshardingMetadata reshardingMetadata, SplitShardCountSummary splitShardCountSummary
+        boolean singleSession,
+        IndexReshardingMetadata reshardingMetadata,
+        SplitShardCountSummary splitShardCountSummary
     ) {
         this.id = id;
         this.indexService = indexService;
