@@ -7,6 +7,7 @@
 
 package org.elasticsearch.xpack.stateless.reshard;
 
+import org.elasticsearch.action.admin.cluster.reroute.ClusterRerouteUtils;
 import org.elasticsearch.action.search.ClosePointInTimeRequest;
 import org.elasticsearch.action.search.ClosePointInTimeResponse;
 import org.elasticsearch.action.search.OpenPointInTimeRequest;
@@ -14,9 +15,11 @@ import org.elasticsearch.action.search.OpenPointInTimeResponse;
 import org.elasticsearch.action.search.TransportClosePointInTimeAction;
 import org.elasticsearch.action.search.TransportOpenPointInTimeAction;
 import org.elasticsearch.action.support.master.MasterNodeRequestHelper;
+import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.metadata.IndexReshardingState;
 import org.elasticsearch.cluster.routing.IndexRouting;
+import org.elasticsearch.cluster.routing.allocation.command.MoveAllocationCommand;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.TimeValue;
@@ -217,9 +220,9 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
     public void testPitRelocationDuringReshard() {
         var masterNode = startMasterOnlyNode();
         String indexNode = startIndexNode();
-        startSearchNodes(2);
+        startSearchNode();
         String searchCoordinator = startSearchNode();
-        ensureStableCluster(5);
+        ensureStableCluster(4);
 
         final int multiple = 2;
         final String indexName = randomIndexName();
@@ -273,23 +276,22 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
         var pit = openPit(searchCoordinator, indexName, 2);
         pit = assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
 
+        moveToDoneBlocked.countDown();
+        waitForReshardCompletion(index);
+
         // Relocate the source search shard to test that search filters work after PIT relocation.
         var clusterState = internalCluster().clusterService(masterNode).state();
-        var project = clusterState.metadata().projectFor(index);
-        var sourceSearchShardNodeId = clusterState.routingTable(project.id())
-            .shardRoutingTable(indexName, 0)
-            .unpromotableShards()
-            .get(0)
-            .currentNodeId();
-        var sourceSearchShardNodeName = clusterState.nodes().get(sourceSearchShardNodeId).getName();
-        updateIndexSettings(Settings.builder().put("index.routing.allocation.exclude._name", sourceSearchShardNodeName));
-        ensureGreen(indexName);
+        relocateSearchShard(clusterState, index, 0);
 
         // And PIT should still work.
         pit = assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
 
-        moveToDoneBlocked.countDown();
-        waitForReshardCompletion(index);
+        // Relocate back.
+        var newClusterState = internalCluster().clusterService(masterNode).state();
+        relocateSearchShard(newClusterState, index, 0);
+
+        // And it still works.
+        pit = assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
 
         closePit(pit);
     }
@@ -297,9 +299,9 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
     public void testLongLivedPitRelocation() {
         var masterNode = startMasterOnlyNode();
         startIndexNode();
-        startSearchNodes(2);
+        startSearchNode();
         String searchCoordinator = startSearchNode();
-        ensureStableCluster(5);
+        ensureStableCluster(4);
 
         final String indexName = randomIndexName();
         // Disable periodic refresh because we want to explicitly control it.
@@ -336,15 +338,7 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
 
         // Relocate the source search shard to test that search filters work after PIT relocation.
         var clusterState = internalCluster().clusterService(masterNode).state();
-        var project = clusterState.metadata().projectFor(index);
-        var sourceSearchShardNodeId = clusterState.routingTable(project.id())
-            .shardRoutingTable(indexName, 0)
-            .unpromotableShards()
-            .get(0)
-            .currentNodeId();
-        var sourceSearchShardNodeName = clusterState.nodes().get(sourceSearchShardNodeId).getName();
-        updateIndexSettings(Settings.builder().put("index.routing.allocation.exclude._name", sourceSearchShardNodeName));
-        ensureGreen(indexName);
+        relocateSearchShard(clusterState, index, 0);
 
         // And still works even after relocation.
         pit = assertPit(searchCoordinator, pit, 1, indexedDocuments.keySet());
@@ -355,9 +349,9 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
     public void testReshardedLongLivedPitRelocation() {
         var masterNode = startMasterOnlyNode();
         String indexNode = startIndexNode();
-        startSearchNodes(2);
+        startSearchNode();
         String searchCoordinator = startSearchNode();
-        ensureStableCluster(5);
+        ensureStableCluster(4);
 
         final String indexName = randomIndexName();
         // Disable periodic refresh because we want to explicitly control it.
@@ -425,15 +419,7 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
 
         // Relocate shard0 search shard to test that search filters work after PIT relocation.
         var clusterState = internalCluster().clusterService(masterNode).state();
-        var project = clusterState.metadata().projectFor(index);
-        var sourceSearchShardNodeId = clusterState.routingTable(project.id())
-            .shardRoutingTable(indexName, 0)
-            .unpromotableShards()
-            .get(0)
-            .currentNodeId();
-        var sourceSearchShardNodeName = clusterState.nodes().get(sourceSearchShardNodeId).getName();
-        updateIndexSettings(Settings.builder().put("index.routing.allocation.exclude._name", sourceSearchShardNodeName));
-        ensureGreen(indexName);
+        relocateSearchShard(clusterState, index, 0);
 
         // All good.
         pit = assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
@@ -513,6 +499,22 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
             new ClosePointInTimeRequest(readerId)
         ).actionGet();
         assertTrue(closeResponse.isSucceeded());
+    }
+
+    private void relocateSearchShard(ClusterState clusterState, Index index, int shardId) {
+        int currentSize = internalCluster().size();
+        var newSearchNode = startSearchNode();
+        ensureStableCluster(currentSize + 1);
+
+        var project = clusterState.metadata().projectFor(index);
+        var nodeId = clusterState.routingTable(project.id())
+            .shardRoutingTable(index.getName(), shardId)
+            .unpromotableShards()
+            .get(0)
+            .currentNodeId();
+        var nodeName = clusterState.nodes().get(nodeId).getName();
+        ClusterRerouteUtils.reroute(client(), new MoveAllocationCommand(index.getName(), shardId, nodeName, newSearchNode));
+        ensureGreen(index.getName());
     }
 
     private void waitForReshardCompletion(Index index) {

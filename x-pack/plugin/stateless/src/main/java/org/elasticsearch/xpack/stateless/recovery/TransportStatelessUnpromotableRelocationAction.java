@@ -270,7 +270,9 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
                                     indexService,
                                     indexShard,
                                     searcherSupplier,
-                                    pitContextInfo.keepAlive()
+                                    pitContextInfo.keepAlive(),
+                                    pitContextInfo.reshardingState.indexReshardingMetadata(),
+                                    pitContextInfo.reshardingState.splitShardCountSummary
                                 );
                                 assert newReaderContext != null;
                                 logger.debug("adding relocated ReaderContext with id: [{}]", newReaderContext.id());

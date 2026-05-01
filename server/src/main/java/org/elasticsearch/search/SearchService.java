@@ -1482,7 +1482,9 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                         indexService,
                         shard,
                         searcherSupplier,
-                        getDefaultKeepAliveInMillis()
+                        getDefaultKeepAliveInMillis(),
+                        null,
+                        SplitShardCountSummary.UNSET
                     );
                     logger.debug("Recreated reader context [{}]", readerContext.id());
                 } else {
@@ -1547,7 +1549,9 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         IndexService indexService,
         IndexShard shard,
         Engine.SearcherSupplier reader,
-        long keepAliveInMillis
+        long keepAliveInMillis,
+        IndexReshardingMetadata relocatedReshardingMetadata,
+        SplitShardCountSummary relocatedSplitShardCountSummary
     ) {
         ReaderContext readerContext = null;
         try {
@@ -1556,6 +1560,10 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             final Long previous = activeReaders.generateRelocationMapping(contextId, newKey);
             if (previous == null) {
                 readerContext = new ReaderContext(contextId, indexService, shard, reader, keepAliveInMillis, false);
+
+                readerContext.putInContext("bla", relocatedReshardingMetadata);
+                readerContext.putInContext("blu", relocatedSplitShardCountSummary);
+
                 reader = null;
                 final ReaderContext finalReaderContext = readerContext;
                 final SearchOperationListener searchOperationListener = shard.getSearchOperationListener();
