@@ -71,6 +71,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 
@@ -413,8 +414,7 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
                                     context.keepAlive(),
                                     new SearchContextIdForNode(null, clusterService.localNode().getId(), context.id()),
                                     statelessCompoundCommit.commitFiles(),
-                                    context.getFromContext("bla"),
-                                    context.getFromContext("blu")
+                                    new OpenPITReshardingState(context.getFromContext("bla"), context.getFromContext("blu"))
                                 )
                             )
                         );
@@ -501,15 +501,14 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
             long keepAlive,
             SearchContextIdForNode contextId,
             Map<String, BlobLocation> metadata,
-            IndexReshardingMetadata relocatedReshardingMetadata,
-            SplitShardCountSummary relocatedSplitShardCountSummary
+            OpenPITReshardingState reshardingState
         ) {
             this.shardId = shardId;
             this.segmentsFileName = segmentsFileName;
             this.keepAlive = keepAlive;
             this.contextId = contextId;
             this.metadata = metadata;
-            this.reshardingState = new OpenPITReshardingState(relocatedReshardingMetadata, relocatedSplitShardCountSummary);
+            this.reshardingState = reshardingState;
         }
 
         @Override
@@ -563,13 +562,31 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
         public OpenPITReshardingState reshardingState() {
             return reshardingState;
         }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o == null || getClass() != o.getClass()) return false;
+            OpenPITContextInfo that = (OpenPITContextInfo) o;
+            return keepAlive == that.keepAlive
+                && Objects.equals(shardId, that.shardId)
+                && Objects.equals(segmentsFileName, that.segmentsFileName)
+                && Objects.equals(contextId, that.contextId)
+                && Objects.equals(metadata, that.metadata)
+                && Objects.equals(reshardingState, that.reshardingState);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(shardId, segmentsFileName, keepAlive, contextId, metadata, reshardingState);
+        }
     }
 
     /// Contains all resharding-related metadata of an open PIT.
     /// This is needed to apply special logic related to resharding when opening a new reader in scope of PIT relocation.
-    record OpenPITReshardingState(@Nullable IndexReshardingMetadata indexReshardingMetadata, SplitShardCountSummary splitShardCountSummary)
-        implements
-            Writeable {
+    static record OpenPITReshardingState(
+        @Nullable IndexReshardingMetadata indexReshardingMetadata,
+        SplitShardCountSummary splitShardCountSummary
+    ) implements Writeable {
         OpenPITReshardingState(StreamInput in) throws IOException {
             this(in.readOptional(IndexReshardingMetadata::new), new SplitShardCountSummary(in));
         }
