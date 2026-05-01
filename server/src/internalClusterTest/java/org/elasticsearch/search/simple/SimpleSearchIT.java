@@ -24,8 +24,8 @@ import org.elasticsearch.index.query.TermQueryBuilder;
 import org.elasticsearch.index.shard.SearchOperationListener;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.rest.RestStatus;
-import org.elasticsearch.search.internal.LegacyReaderContext;
 import org.elasticsearch.search.internal.ReaderContext;
+import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.rescore.QueryRescorerBuilder;
 import org.elasticsearch.search.sort.SortOrder;
@@ -672,17 +672,17 @@ public class SimpleSearchIT extends ESIntegTestCase {
             indexModule.addSearchOperationListener(new SearchOperationListener() {
                 @Override
                 public void onNewReaderContext(ReaderContext readerContext) {
-                    assertThat(readerContext, not(instanceOf(LegacyReaderContext.class)));
+                    assertThat(readerContext, not(instanceOf(ScrollReaderContext.class)));
                 }
 
                 @Override
                 public void onQueryPhase(SearchContext searchContext, long tookInNanos) {
-                    assertThat(searchContext.readerContext(), not(instanceOf(LegacyReaderContext.class)));
+                    assertThat(searchContext.readerContext(), not(instanceOf(ScrollReaderContext.class)));
                 }
 
                 @Override
                 public void onFetchPhase(SearchContext searchContext, long tookInNanos) {
-                    assertThat(searchContext.readerContext(), not(instanceOf(LegacyReaderContext.class)));
+                    assertThat(searchContext.readerContext(), not(instanceOf(ScrollReaderContext.class)));
                 }
             });
         }

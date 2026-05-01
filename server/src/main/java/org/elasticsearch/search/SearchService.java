@@ -110,8 +110,9 @@ import org.elasticsearch.search.fetch.subphase.ScriptFieldsContext.ScriptField;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder;
 import org.elasticsearch.search.internal.AliasFilter;
 import org.elasticsearch.search.internal.InternalScrollSearchRequest;
-import org.elasticsearch.search.internal.LegacyReaderContext;
+import org.elasticsearch.search.internal.PitReaderContext;
 import org.elasticsearch.search.internal.ReaderContext;
+import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.internal.ShardSearchRequest;
@@ -1017,7 +1018,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 return executeFetchPhase(readerContext, context, afterQueryTime);
             } else {
                 // Pass the rescoreDocIds to the queryResult to send them the coordinating node and receive them back in the fetch phase.
-                // We also pass the rescoreDocIds to the LegacyReaderContext in case the search state needs to stay in the data node.
+                // We also pass the rescoreDocIds to the ScrollReaderContext in case the search state needs to stay in the data node.
                 final RescoreDocIds rescoreDocIds = context.rescoreDocIds();
                 context.queryResult().setRescoreDocIds(rescoreDocIds);
                 readerContext.setRescoreDocIds(rescoreDocIds);
@@ -1238,7 +1239,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         ActionListener<ScrollQuerySearchResult> listener,
         TransportVersion version
     ) {
-        final LegacyReaderContext readerContext = (LegacyReaderContext) findReaderContext(request.contextId(), request);
+        final ScrollReaderContext readerContext = (ScrollReaderContext) findReaderContext(request.contextId(), request);
         listener = wrapListenerForErrorHandling(
             listener,
             version,
@@ -1339,7 +1340,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                     }
                     // Pass the rescoreDocIds to the queryResult to send them the coordinating node
                     // and receive them back in the fetch phase.
-                    // We also pass the rescoreDocIds to the LegacyReaderContext in case the search state needs to stay in the data node.
+                    // We also pass the rescoreDocIds to the ScrollReaderContext in case the search state needs to stay in the data node.
                     final RescoreDocIds rescoreDocIds = searchContext.rescoreDocIds();
                     queryResult.setRescoreDocIds(rescoreDocIds);
                     readerContext.setRescoreDocIds(rescoreDocIds);
@@ -1376,7 +1377,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         SearchShardTask task,
         ActionListener<ScrollQueryFetchSearchResult> listener
     ) {
-        final LegacyReaderContext readerContext = (LegacyReaderContext) findReaderContext(request.contextId(), request);
+        final ScrollReaderContext readerContext = (ScrollReaderContext) findReaderContext(request.contextId(), request);
         final Releasable markAsUsed;
         try {
             markAsUsed = readerContext.markAsUsed(getScrollKeepAlive(request.scroll()));
@@ -1517,15 +1518,16 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 if (openScrollContexts.incrementAndGet() > maxOpenScrollContext) {
                     throw new TooManyScrollContextsException(maxOpenScrollContext, MAX_OPEN_SCROLL_CONTEXT.getKey());
                 }
-                readerContext = new LegacyReaderContext(id, indexService, shard, reader, request, keepAliveInMillis);
+                readerContext = new ScrollReaderContext(id, indexService, shard, reader, request, keepAliveInMillis);
                 readerContext.addOnClose(decreaseScrollContexts);
                 decreaseScrollContexts = null;
             } else {
                 final ShardSearchContextId id = new ShardSearchContextId(sessionId, idGenerator.incrementAndGet(), reader.getSearcherId());
-                readerContext = new ReaderContext(id, indexService, shard, reader, keepAliveInMillis, true);
+                readerContext = new ReaderContext.SingleSessionReaderContext(id, indexService, shard, reader, keepAliveInMillis);
             }
             reader = null;
             final ReaderContext finalReaderContext = readerContext;
+            // TODO move into the interface (notifyCreated or something)
             final SearchOperationListener searchOperationListener = shard.getSearchOperationListener();
             searchOperationListener.onNewReaderContext(finalReaderContext);
             if (finalReaderContext.scrollContext() != null) {
@@ -1554,7 +1556,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             // Check that we don't already have a relocation mapping for this context id
             final Long previous = activeReaders.generateRelocationMapping(contextId, newKey);
             if (previous == null) {
-                readerContext = new ReaderContext(contextId, indexService, shard, reader, keepAliveInMillis, false);
+                readerContext = new PitReaderContext(contextId, indexService, shard, reader, keepAliveInMillis);
                 reader = null;
                 final ReaderContext finalReaderContext = readerContext;
                 final SearchOperationListener searchOperationListener = shard.getSearchOperationListener();
@@ -1605,7 +1607,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                     idGenerator.incrementAndGet(),
                     searcherSupplier.getSearcherId()
                 );
-                readerContext = new ReaderContext(id, indexService, shard, searcherSupplier, keepAlive.millis(), false);
+                readerContext = new PitReaderContext(id, indexService, shard, searcherSupplier, keepAlive.millis());
                 final ReaderContext finalReaderContext = readerContext;
                 searcherSupplier = null; // transfer ownership to reader context
                 searchOperationListener.onNewReaderContext(readerContext);
@@ -1668,7 +1670,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         final IndexShard indexShard = indexService.getShard(request.shardId().getId());
         final Engine.SearcherSupplier reader = indexShard.acquireExternalSearcherSupplier(request.getSplitShardCountSummary());
         final ShardSearchContextId id = new ShardSearchContextId(sessionId, idGenerator.incrementAndGet(), reader.getSearcherId());
-        try (ReaderContext readerContext = new ReaderContext(id, indexService, indexShard, reader, -1L, true)) {
+        try (ReaderContext readerContext = new ReaderContext.SingleSessionReaderContext(id, indexService, indexShard, reader, -1L)) {
             // Use ResultsType.QUERY so that the created search context can execute queries correctly.
             DefaultSearchContext searchContext = createSearchContext(readerContext, request, timeout, ResultsType.QUERY);
             searchContext.addReleasable(readerContext.markAsUsed(0L));
@@ -1887,7 +1889,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     }
 
     private static boolean isScrollContext(ReaderContext context) {
-        return context instanceof LegacyReaderContext && context.singleSession() == false;
+        return context instanceof ScrollReaderContext && context.singleSession() == false;
     }
 
     private void processFailure(ReaderContext context, Exception exc) {

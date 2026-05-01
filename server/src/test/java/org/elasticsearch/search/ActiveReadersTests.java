@@ -11,8 +11,8 @@ package org.elasticsearch.search;
 
 import org.elasticsearch.common.UUIDs;
 import org.elasticsearch.index.shard.IndexShard;
-import org.elasticsearch.search.internal.LegacyReaderContext;
 import org.elasticsearch.search.internal.ReaderContext;
+import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.internal.ShardSearchRequest;
 import org.elasticsearch.test.ESTestCase;
@@ -162,7 +162,7 @@ public class ActiveReadersTests extends ESTestCase {
         Mockito.when(mockShard.getThreadPool()).thenReturn(mockThreadPool);
         return randomBoolean() || id.isRetryable()
             ? new ReaderContext(id, null, mockShard, null, randomPositiveTimeValue().millis(), randomBoolean())
-            : new LegacyReaderContext(
+            : new ScrollReaderContext(
                 id,
                 null,
                 mockShard,

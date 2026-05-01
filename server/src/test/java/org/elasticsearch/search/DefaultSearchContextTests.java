@@ -68,9 +68,9 @@ import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilde
 import org.elasticsearch.search.aggregations.support.CoreValuesSourceType;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.internal.AliasFilter;
-import org.elasticsearch.search.internal.LegacyReaderContext;
 import org.elasticsearch.search.internal.ReaderContext;
 import org.elasticsearch.search.internal.ScrollContext;
+import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.internal.ShardSearchRequest;
 import org.elasticsearch.search.rescore.RescoreContext;
@@ -226,7 +226,7 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
 
             // resultWindow greater than maxResultWindow and scrollContext isn't null
             when(shardSearchRequest.scroll()).thenReturn(TimeValue.timeValueMillis(randomInt(1000)));
-            ReaderContext readerContext = new LegacyReaderContext(
+            ReaderContext readerContext = new ScrollReaderContext(
                 newContextId(),
                 indexService,
                 indexShard,

@@ -40,8 +40,8 @@ import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
-import org.elasticsearch.search.internal.LegacyReaderContext;
 import org.elasticsearch.search.internal.ReaderContext;
+import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.sort.FieldSortBuilder;
 import org.elasticsearch.tasks.CancellableTask;
@@ -546,7 +546,7 @@ public class CrossClusterIT extends AbstractCrossClusterSearchTestCase {
             indexModule.addSearchOperationListener(new SearchOperationListener() {
                 @Override
                 public void onNewReaderContext(ReaderContext readerContext) {
-                    assertThat(readerContext, not(instanceOf(LegacyReaderContext.class)));
+                    assertThat(readerContext, not(instanceOf(ScrollReaderContext.class)));
                 }
 
                 @Override

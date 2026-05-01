@@ -16,7 +16,7 @@ import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.license.MockLicenseState;
 import org.elasticsearch.search.SearchContextMissingException;
 import org.elasticsearch.search.internal.InternalScrollSearchRequest;
-import org.elasticsearch.search.internal.LegacyReaderContext;
+import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.internal.ShardSearchRequest;
 import org.elasticsearch.test.ESSingleNodeTestCase;
@@ -65,7 +65,7 @@ public class SecuritySearchOperationListenerTests extends ESSingleNodeTestCase {
         final ShardSearchRequest shardSearchRequest = mock(ShardSearchRequest.class);
         when(shardSearchRequest.scroll()).thenReturn(TimeValue.timeValueMinutes(between(1, 10)));
         try (
-            LegacyReaderContext readerContext = new LegacyReaderContext(
+            ScrollReaderContext readerContext = new ScrollReaderContext(
                 new ShardSearchContextId(UUIDs.randomBase64UUID(), 0L),
                 indexService,
                 shard,
@@ -104,7 +104,7 @@ public class SecuritySearchOperationListenerTests extends ESSingleNodeTestCase {
         final ShardSearchRequest shardSearchRequest = mock(ShardSearchRequest.class);
         when(shardSearchRequest.scroll()).thenReturn(TimeValue.timeValueMinutes(between(1, 10)));
         try (
-            LegacyReaderContext readerContext = new LegacyReaderContext(
+            ScrollReaderContext readerContext = new ScrollReaderContext(
                 new ShardSearchContextId(UUIDs.randomBase64UUID(), 0L),
                 indexService,
                 shard,
@@ -242,7 +242,7 @@ public class SecuritySearchOperationListenerTests extends ESSingleNodeTestCase {
         when(shardSearchRequest.scroll()).thenReturn(TimeValue.timeValueMinutes(between(1, 10)));
         final ShardSearchContextId shardSearchContextId = new ShardSearchContextId(UUIDs.randomBase64UUID(), randomLong());
         try (
-            LegacyReaderContext readerContext = new LegacyReaderContext(
+            ScrollReaderContext readerContext = new ScrollReaderContext(
                 shardSearchContextId,
                 indexService,
                 shard,

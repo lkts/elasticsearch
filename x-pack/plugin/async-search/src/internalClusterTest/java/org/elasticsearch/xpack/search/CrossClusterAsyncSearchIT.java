@@ -37,8 +37,8 @@ import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
-import org.elasticsearch.search.internal.LegacyReaderContext;
 import org.elasticsearch.search.internal.ReaderContext;
+import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.query.SlowRunningQueryBuilder;
 import org.elasticsearch.search.query.ThrowingQueryBuilder;
@@ -2440,7 +2440,7 @@ public class CrossClusterAsyncSearchIT extends AbstractMultiClustersTestCase {
             indexModule.addSearchOperationListener(new SearchOperationListener() {
                 @Override
                 public void onNewReaderContext(ReaderContext readerContext) {
-                    assertThat(readerContext, not(instanceOf(LegacyReaderContext.class)));
+                    assertThat(readerContext, not(instanceOf(ScrollReaderContext.class)));
                 }
 
                 @Override
