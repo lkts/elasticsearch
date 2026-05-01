@@ -9,8 +9,6 @@
 
 package org.elasticsearch.search.internal;
 
-import org.elasticsearch.cluster.metadata.IndexReshardingMetadata;
-import org.elasticsearch.cluster.routing.SplitShardCountSummary;
 import org.elasticsearch.core.AbstractRefCounted;
 import org.elasticsearch.core.RefCounted;
 import org.elasticsearch.core.Releasable;
@@ -46,8 +44,6 @@ public class ReaderContext implements Releasable {
     protected final Engine.SearcherSupplier searcherSupplier;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final boolean singleSession;
-    private final IndexReshardingMetadata reshardingMetadata;
-    private final SplitShardCountSummary splitShardCountSummary;
 
     private final AtomicLong keepAlive;
     private final AtomicLong lastAccessTime;
@@ -68,9 +64,7 @@ public class ReaderContext implements Releasable {
         IndexShard indexShard,
         Engine.SearcherSupplier searcherSupplier,
         long keepAliveInMillis,
-        boolean singleSession,
-        IndexReshardingMetadata reshardingMetadata,
-        SplitShardCountSummary splitShardCountSummary
+        boolean singleSession
     ) {
         this.id = id;
         this.indexService = indexService;
@@ -78,8 +72,6 @@ public class ReaderContext implements Releasable {
         this.searcherSupplier = searcherSupplier;
         this.singleSession = singleSession;
         this.keepAlive = new AtomicLong(keepAliveInMillis);
-        this.reshardingMetadata = reshardingMetadata;
-        this.splitShardCountSummary = splitShardCountSummary;
         this.lastAccessTime = new AtomicLong(nowInMillis());
         this.refCounted = AbstractRefCounted.of(this::doClose);
     }

@@ -3096,9 +3096,7 @@ public class SearchServiceSingleNodeTests extends ESSingleNodeTestCase {
             indexShard,
             indexShard.acquireSearcherSupplier(),
             randomNonNegativeLong(),
-            false,
-            null,
-            null
+            false
         );
     }
 

@@ -1523,16 +1523,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 decreaseScrollContexts = null;
             } else {
                 final ShardSearchContextId id = new ShardSearchContextId(sessionId, idGenerator.incrementAndGet(), reader.getSearcherId());
-                readerContext = new ReaderContext(
-                    id,
-                    indexService,
-                    shard,
-                    reader,
-                    keepAliveInMillis,
-                    true,
-                    null,
-                    request.getSplitShardCountSummary()
-                );
+                readerContext = new ReaderContext(id, indexService, shard, reader, keepAliveInMillis, true);
             }
             reader = null;
             final ReaderContext finalReaderContext = readerContext;
@@ -1564,7 +1555,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
             // Check that we don't already have a relocation mapping for this context id
             final Long previous = activeReaders.generateRelocationMapping(contextId, newKey);
             if (previous == null) {
-                readerContext = new ReaderContext(contextId, indexService, shard, reader, keepAliveInMillis, false, null, null);
+                readerContext = new ReaderContext(contextId, indexService, shard, reader, keepAliveInMillis, false);
                 reader = null;
                 final ReaderContext finalReaderContext = readerContext;
                 final SearchOperationListener searchOperationListener = shard.getSearchOperationListener();
@@ -1633,16 +1624,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                     idGenerator.incrementAndGet(),
                     searcherSupplier.getSearcherId()
                 );
-                readerContext = new ReaderContext(
-                    id,
-                    indexService,
-                    shard,
-                    searcherSupplier,
-                    keepAlive.millis(),
-                    false,
-                    null,
-                    splitShardCountSummary
-                );
+                readerContext = new ReaderContext(id, indexService, shard, searcherSupplier, keepAlive.millis(), false);
                 final ReaderContext finalReaderContext = readerContext;
                 searcherSupplier = null; // transfer ownership to reader context
                 searchOperationListener.onNewReaderContext(readerContext);
@@ -1709,18 +1691,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         final IndexShard indexShard = indexService.getShard(request.shardId().getId());
         final Engine.SearcherSupplier reader = indexShard.acquireExternalSearcherSupplier(request.getSplitShardCountSummary());
         final ShardSearchContextId id = new ShardSearchContextId(sessionId, idGenerator.incrementAndGet(), reader.getSearcherId());
-        try (
-            ReaderContext readerContext = new ReaderContext(
-                id,
-                indexService,
-                indexShard,
-                reader,
-                -1L,
-                true,
-                null,
-                request.getSplitShardCountSummary()
-            )
-        ) {
+        try (ReaderContext readerContext = new ReaderContext(id, indexService, indexShard, reader, -1L, true)) {
             // Use ResultsType.QUERY so that the created search context can execute queries correctly.
             DefaultSearchContext searchContext = createSearchContext(readerContext, request, timeout, ResultsType.QUERY);
             searchContext.addReleasable(readerContext.markAsUsed(0L));
