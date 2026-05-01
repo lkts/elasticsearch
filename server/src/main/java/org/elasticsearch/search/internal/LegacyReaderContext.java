@@ -33,7 +33,7 @@ public final class LegacyReaderContext extends ReaderContext {
         ShardSearchRequest shardSearchRequest,
         long keepAliveInMillis
     ) {
-        super(id, indexService, indexShard, reader, keepAliveInMillis, false);
+        super(id, indexService, indexShard, reader, keepAliveInMillis, false, null, null);
         assert shardSearchRequest.readerId() == null;
         assert shardSearchRequest.keepAlive() == null;
         assert id.isRetryable() == false : "Legacy reader context is not retryable";

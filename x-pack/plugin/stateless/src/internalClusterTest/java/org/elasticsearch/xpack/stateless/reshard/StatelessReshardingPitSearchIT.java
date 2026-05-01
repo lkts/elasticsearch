@@ -13,6 +13,7 @@ import org.elasticsearch.action.search.OpenPointInTimeRequest;
 import org.elasticsearch.action.search.OpenPointInTimeResponse;
 import org.elasticsearch.action.search.TransportClosePointInTimeAction;
 import org.elasticsearch.action.search.TransportOpenPointInTimeAction;
+import org.elasticsearch.action.support.master.MasterNodeRequestHelper;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.metadata.IndexReshardingState;
 import org.elasticsearch.cluster.routing.IndexRouting;
@@ -23,6 +24,7 @@ import org.elasticsearch.index.Index;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.builder.PointInTimeBuilder;
 import org.elasticsearch.test.transport.MockTransportService;
+import org.elasticsearch.transport.TransportRequest;
 import org.elasticsearch.xpack.stateless.AbstractStatelessPluginIntegTestCase;
 
 import java.util.Collections;
@@ -209,6 +211,81 @@ public class StatelessReshardingPitSearchIT extends AbstractStatelessPluginInteg
         closePit(afterHandoffPitId);
         closePit(splitPitId);
         closePit(donePitId);
+    }
+
+    public void testPitRelocationDuringReshard() {
+        var masterNode = startMasterOnlyNode();
+        String indexNode = startIndexNode();
+        var searchNodes = startSearchNodes(2);
+        String searchCoordinator = startSearchNode();
+        ensureStableCluster(5);
+
+        final int multiple = 2;
+        final String indexName = randomIndexName();
+        // Disable periodic refresh because we want to explicitly control it.
+        createIndex(indexName, indexSettings(1, 1).put(INDEX_REFRESH_INTERVAL_SETTING.getKey(), TimeValue.MINUS_ONE).build());
+        ensureGreen(indexName);
+
+        var index = resolveIndex(indexName);
+        var indexMetadata = indexMetadata(internalCluster().clusterService(masterNode).state(), index);
+
+        // We re-create the metadata directly in test in order to have access to after-reshard routing.
+        var wouldBeMetadata = IndexMetadata.builder(indexMetadata).reshardAddShards(multiple).build();
+        var wouldBeAfterSplitRouting = IndexRouting.fromIndexMetadata(wouldBeMetadata);
+
+
+        int documentsPerShardPerRound = randomIntBetween(5, 10);
+        var indexedDocuments = indexDocuments(indexName, 2, documentsPerShardPerRound, "all", wouldBeAfterSplitRouting);
+
+        refresh(indexName);
+
+        CountDownLatch moveToDoneAttempted = new CountDownLatch(1);
+        CountDownLatch moveToDoneBlocked = new CountDownLatch(1);
+        MockTransportService indexTransportService = MockTransportService.getInstance(indexNode);
+        indexTransportService.addSendBehavior((connection, requestId, action, request, options) -> {
+            if (TransportUpdateSplitTargetShardStateAction.TYPE.name().equals(action)) {
+                TransportRequest actualRequest = MasterNodeRequestHelper.unwrapTermOverride(request);
+
+                if (actualRequest instanceof SplitStateRequest splitStateRequest) {
+                    if (splitStateRequest.getNewTargetShardState() == IndexReshardingState.Split.TargetShardState.DONE) {
+                        moveToDoneAttempted.countDown();
+                        safeAwait(moveToDoneBlocked);
+                    }
+                }
+            }
+            connection.sendRequest(requestId, action, request, options);
+        });
+
+        ReshardIndexRequest reshardRequest = new ReshardIndexRequest(indexName);
+        client(masterNode).execute(TransportReshardAction.TYPE, reshardRequest).actionGet();
+
+        safeAwait(moveToDoneAttempted);
+        awaitClusterState(
+            searchCoordinator,
+            clusterState -> clusterState.getMetadata()
+                .indexMetadata(index)
+                .getReshardingMetadata()
+                .getSplit()
+                .targetStates()
+                .allMatch(s -> s == IndexReshardingState.Split.TargetShardState.SPLIT)
+        );
+
+        var pit = openPit(searchCoordinator, indexName, 2);
+        assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
+
+        // Relocate the source search shard to test that search filters work after PIT relocation.
+        var clusterState = internalCluster().clusterService(masterNode).state();
+        var project = clusterState.metadata().projectFor(index);
+        var sourceSearchShardNodeId = clusterState.routingTable(project.id()).shardRoutingTable(indexName, 0).unpromotableShards().get(0).currentNodeId();
+        var sourceSearchShardNodeName = clusterState.nodes().get(sourceSearchShardNodeId).getName();
+        updateIndexSettings(Settings.builder().put("index.routing.allocation.exclude._name", sourceSearchShardNodeName));
+        ensureGreen(indexName);
+
+        // And PIT should still work.
+        assertPit(searchCoordinator, pit, 2, indexedDocuments.keySet());
+
+        moveToDoneBlocked.countDown();
+        waitForReshardCompletion(index);
     }
 
     @Override

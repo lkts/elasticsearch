@@ -12,6 +12,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexCommit;
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.TransportVersion;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionListenerResponseHandler;
 import org.elasticsearch.action.ActionRequest;
@@ -27,8 +28,10 @@ import org.elasticsearch.action.support.SubscribableListener;
 import org.elasticsearch.action.support.TransportAction;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.ClusterStateObserver;
+import org.elasticsearch.cluster.metadata.IndexReshardingMetadata;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.project.ProjectResolver;
+import org.elasticsearch.cluster.routing.SplitShardCountSummary;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.blobstore.support.BlobMetadata;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -37,6 +40,7 @@ import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
+import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.index.IndexService;
 import org.elasticsearch.index.engine.Engine.Searcher;
@@ -254,6 +258,8 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
                     segmentsFileName,
                     metadata,
                     indexShard::wrapSearcher,
+                    pitContextInfo.reshardingState().indexReshardingMetadata,
+                    pitContextInfo.reshardingState().splitShardCountSummary,
                     new ActionListener<>() {
                         @Override
                         public void onResponse(SearcherSupplier searcherSupplier) {
@@ -460,22 +466,44 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
         }
     }
 
-    record OpenPITContextInfo(
-        ShardId shardId,
-        String segmentsFileName,
-        long keepAlive,
-        SearchContextIdForNode contextId,
-        Map<String, BlobLocation> metadata
-    ) implements Writeable {
+    private static final TransportVersion RESHARDING_METADATA_IN_PIT_RELOCATION = TransportVersion.fromName(
+        "resharding_metadata_in_pit_relocation"
+    );
+
+    static class OpenPITContextInfo implements Writeable {
+        private final ShardId shardId;
+        private final String segmentsFileName;
+        private final long keepAlive;
+        private final SearchContextIdForNode contextId;
+        private final Map<String, BlobLocation> metadata;
+        private final OpenPITReshardingState reshardingState;
 
         OpenPITContextInfo(StreamInput in) throws IOException {
-            this(
-                new ShardId(in),
-                in.readString(),
-                in.readVLong(),
-                new SearchContextIdForNode(in),
-                in.readMap(StreamInput::readString, BlobLocation::readFromTransport)
-            );
+            shardId = new ShardId(in);
+            segmentsFileName = in.readString();
+            keepAlive = in.readVLong();
+            contextId = new SearchContextIdForNode(in);
+            metadata = in.readMap(StreamInput::readString, BlobLocation::readFromTransport);
+            if (in.getTransportVersion().supports(RESHARDING_METADATA_IN_PIT_RELOCATION)) {
+                reshardingState = new OpenPITReshardingState(in);
+            } else {
+                reshardingState = null;
+            }
+        }
+
+        OpenPITContextInfo(
+            ShardId shardId,
+            String segmentsFileName,
+            long keepAlive,
+            SearchContextIdForNode contextId,
+            Map<String, BlobLocation> metadata
+        ) {
+            this.shardId = shardId;
+            this.segmentsFileName = segmentsFileName;
+            this.keepAlive = keepAlive;
+            this.contextId = contextId;
+            this.metadata = metadata;
+            this.reshardingState = new OpenPITReshardingState(null, SplitShardCountSummary.UNSET);
         }
 
         @Override
@@ -485,6 +513,7 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
             out.writeVLong(keepAlive);
             contextId.writeTo(out);
             out.writeMap(metadata, StreamOutput::writeString, StreamOutput::writeWriteable);
+            reshardingState.writeTo(out);
         }
 
         @Override
@@ -503,6 +532,46 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
                 + ", metadata="
                 + metadata
                 + '}';
+        }
+
+        public ShardId shardId() {
+            return shardId;
+        }
+
+        public String segmentsFileName() {
+            return segmentsFileName;
+        }
+
+        public long keepAlive() {
+            return keepAlive;
+        }
+
+        public SearchContextIdForNode contextId() {
+            return contextId;
+        }
+
+        public Map<String, BlobLocation> metadata() {
+            return metadata;
+        }
+
+        public OpenPITReshardingState reshardingState() {
+            return reshardingState;
+        }
+    }
+
+    /// Contains all resharding-related metadata of an open PIT.
+    /// This is needed to apply special logic related to resharding when opening a new reader in scope of PIT relocation.
+    record OpenPITReshardingState(@Nullable IndexReshardingMetadata indexReshardingMetadata, SplitShardCountSummary splitShardCountSummary)
+        implements
+            Writeable {
+        OpenPITReshardingState(StreamInput in) throws IOException {
+            this(in.readOptional(IndexReshardingMetadata::new), new SplitShardCountSummary(in));
+        }
+
+        @Override
+        public void writeTo(StreamOutput out) throws IOException {
+            out.writeOptionalWriteable(indexReshardingMetadata);
+            splitShardCountSummary.writeTo(out);
         }
     }
 

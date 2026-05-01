@@ -161,7 +161,7 @@ public class ActiveReadersTests extends ESTestCase {
         Mockito.when(mockThreadPool.relativeTimeInMillis()).thenReturn(System.currentTimeMillis());
         Mockito.when(mockShard.getThreadPool()).thenReturn(mockThreadPool);
         return randomBoolean() || id.isRetryable()
-            ? new ReaderContext(id, null, mockShard, null, randomPositiveTimeValue().millis(), randomBoolean())
+            ? new ReaderContext(id, null, mockShard, null, randomPositiveTimeValue().millis(), randomBoolean(), null, null)
             : new LegacyReaderContext(
                 id,
                 null,
