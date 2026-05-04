@@ -199,7 +199,9 @@ public class StatelessRealTimeTermVectorsIT extends AbstractStatelessPluginInteg
                 // No additional refreshes are expected in the test.
                 refresh(INDEX_NAME);
                 refresh(INDEX_NAME);
-                // Ensure that version map archive is empty since it is cleared asynchronously via `IndexEngine.commitSuccess()`.
+                // Ensure that version map archive is empty because the test relies on this fact to assert there is no refreshes.
+                // The archive is cleared asynchronously via `IndexEngine.commitSuccess()`
+                // and can race with `TransportEnsureDocsSearchableAction` performed in scope of term vectors operation.
                 assertDocumentNotInLiveVersionMapArchive(indexedDocumentIds.getLast());
             }
         }
