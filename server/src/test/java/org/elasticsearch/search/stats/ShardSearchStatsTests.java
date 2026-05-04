@@ -32,6 +32,7 @@ import org.elasticsearch.search.internal.ReaderContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.internal.ShardSearchRequest;
+import org.elasticsearch.search.internal.SingleSessionReaderContext;
 import org.elasticsearch.search.suggest.SuggestBuilder;
 import org.elasticsearch.test.TestSearchContext;
 import org.junit.Before;
@@ -272,7 +273,7 @@ public class ShardSearchStatsTests extends IndexShardTestCase {
     }
 
     private static ReaderContext createReaderContext(IndexShard indexShard) {
-        return new ReaderContext(new ShardSearchContextId("test", 1L), null, indexShard, null, 0L, false);
+        return new SingleSessionReaderContext(new ShardSearchContextId("test", 1L), null, indexShard, null, 0L);
     }
 
     private static SearchContext createSearchContext(boolean suggested) {

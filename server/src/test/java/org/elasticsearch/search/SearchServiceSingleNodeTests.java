@@ -104,6 +104,7 @@ import org.elasticsearch.search.fetch.ShardFetchSearchRequest;
 import org.elasticsearch.search.fetch.subphase.FieldAndFormat;
 import org.elasticsearch.search.internal.AliasFilter;
 import org.elasticsearch.search.internal.ContextIndexSearcher;
+import org.elasticsearch.search.internal.PitReaderContext;
 import org.elasticsearch.search.internal.ReaderContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
@@ -3090,13 +3091,12 @@ public class SearchServiceSingleNodeTests extends ESSingleNodeTestCase {
     }
 
     private static ReaderContext createReaderContext(IndexService indexService, IndexShard indexShard) {
-        return new ReaderContext(
+        return new PitReaderContext(
             new ShardSearchContextId(UUIDs.randomBase64UUID(), randomNonNegativeLong()),
             indexService,
             indexShard,
             indexShard.acquireSearcherSupplier(),
-            randomNonNegativeLong(),
-            false
+            randomNonNegativeLong()
         );
     }
 

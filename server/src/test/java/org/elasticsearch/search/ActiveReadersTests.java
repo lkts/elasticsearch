@@ -11,10 +11,12 @@ package org.elasticsearch.search;
 
 import org.elasticsearch.common.UUIDs;
 import org.elasticsearch.index.shard.IndexShard;
+import org.elasticsearch.search.internal.PitReaderContext;
 import org.elasticsearch.search.internal.ReaderContext;
 import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.internal.ShardSearchRequest;
+import org.elasticsearch.search.internal.SingleSessionReaderContext;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.mockito.Mockito;
@@ -160,9 +162,14 @@ public class ActiveReadersTests extends ESTestCase {
         ThreadPool mockThreadPool = Mockito.mock(ThreadPool.class);
         Mockito.when(mockThreadPool.relativeTimeInMillis()).thenReturn(System.currentTimeMillis());
         Mockito.when(mockShard.getThreadPool()).thenReturn(mockThreadPool);
-        return randomBoolean() || id.isRetryable()
-            ? new ReaderContext(id, null, mockShard, null, randomPositiveTimeValue().millis(), randomBoolean())
-            : new ScrollReaderContext(
+
+        // ScrollReaderContext is not retryable.
+        int type = id.isRetryable() ? randomInt(1) : randomInt(2);
+
+        return switch (type) {
+            case 0 -> new SingleSessionReaderContext(id, null, mockShard, null, randomPositiveTimeValue().millis());
+            case 1 -> new PitReaderContext(id, null, mockShard, null, randomPositiveTimeValue().millis());
+            case 2 -> new ScrollReaderContext(
                 id,
                 null,
                 mockShard,
@@ -170,6 +177,8 @@ public class ActiveReadersTests extends ESTestCase {
                 Mockito.mock(ShardSearchRequest.class),
                 randomPositiveTimeValue().millis()
             );
+            default -> throw new IllegalStateException("Unexpected value: " + type);
+        };
     }
 
 }

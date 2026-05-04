@@ -90,6 +90,7 @@ import org.elasticsearch.search.internal.ReaderContext;
 import org.elasticsearch.search.internal.ScrollContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
+import org.elasticsearch.search.internal.SingleSessionReaderContext;
 import org.elasticsearch.search.rank.RankShardResult;
 import org.elasticsearch.search.rank.context.QueryPhaseRankShardContext;
 import org.elasticsearch.search.sort.SortAndFormats;
@@ -1100,7 +1101,7 @@ public class QueryPhaseTests extends IndexShardTestCase {
 
             @Override
             public ReaderContext readerContext() {
-                return new ReaderContext(new ShardSearchContextId("test", 1L), null, indexShard, null, 0L, false);
+                return new SingleSessionReaderContext(new ShardSearchContextId("test", 1L), null, indexShard, null, 0L);
             }
         }) {
 

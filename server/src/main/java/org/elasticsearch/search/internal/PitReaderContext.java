@@ -62,7 +62,6 @@ public final class PitReaderContext implements ReaderContext {
         return delegate.indexShard();
     }
 
-    @Override
     public long keepAlive() {
         return delegate.keepAlive();
     }
@@ -89,22 +88,6 @@ public final class PitReaderContext implements ReaderContext {
         }
 
         return delegate.isExpired();
-    }
-
-    @Override
-    public boolean isRelocating() {
-        return relocatedTimestampMs > 0;
-    }
-
-    /**
-     * Indicate that this context is in the process of relocating.
-     * We check this to prevent new search requests from using this context,
-     * while running searches can still use it. Also this marks the context for cleanup
-     * in one of the next {@link  SearchService} Reaper runs.
-     */
-    @Override
-    public void relocate() {
-        relocatedTimestampMs = nowInMillis();
     }
 
     @Override
@@ -160,6 +143,20 @@ public final class PitReaderContext implements ReaderContext {
     @Override
     public void close() {
         delegate.close();
+    }
+
+    /**
+     * Indicate that this context is in the process of relocating.
+     * We check this to prevent new search requests from using this context,
+     * while running searches can still use it. Also this marks the context for cleanup
+     * in one of the next {@link  SearchService} Reaper runs.
+     */
+    public void relocate() {
+        relocatedTimestampMs = nowInMillis();
+    }
+
+    private boolean isRelocating() {
+        return relocatedTimestampMs > 0;
     }
 
     private long nowInMillis() {

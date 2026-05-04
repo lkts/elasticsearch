@@ -116,6 +116,7 @@ import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.internal.ShardSearchRequest;
+import org.elasticsearch.search.internal.SingleSessionReaderContext;
 import org.elasticsearch.search.internal.SubSearchContext;
 import org.elasticsearch.search.lookup.SearchLookup;
 import org.elasticsearch.search.profile.Profilers;
@@ -956,7 +957,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         final ShardSearchContextId contextId = request.readerId();
         if (contextId != null && sessionId.equals(contextId.getSessionId())) {
             final ReaderContext readerContext = activeReaders.get(contextId);
-            if (readerContext != null && readerContext.isRelocating() == false) {
+            if (readerContext != null && readerContext.isExpired() == false) {
                 return readerContext.indexShard();
             }
         }
@@ -1523,7 +1524,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
                 decreaseScrollContexts = null;
             } else {
                 final ShardSearchContextId id = new ShardSearchContextId(sessionId, idGenerator.incrementAndGet(), reader.getSearcherId());
-                readerContext = new ReaderContext.SingleSessionReaderContext(id, indexService, shard, reader, keepAliveInMillis);
+                readerContext = new SingleSessionReaderContext(id, indexService, shard, reader, keepAliveInMillis);
             }
             reader = null;
             final ReaderContext finalReaderContext = readerContext;
@@ -1670,7 +1671,7 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
         final IndexShard indexShard = indexService.getShard(request.shardId().getId());
         final Engine.SearcherSupplier reader = indexShard.acquireExternalSearcherSupplier(request.getSplitShardCountSummary());
         final ShardSearchContextId id = new ShardSearchContextId(sessionId, idGenerator.incrementAndGet(), reader.getSearcherId());
-        try (ReaderContext readerContext = new ReaderContext.SingleSessionReaderContext(id, indexService, indexShard, reader, -1L)) {
+        try (ReaderContext readerContext = new SingleSessionReaderContext(id, indexService, indexShard, reader, -1L)) {
             // Use ResultsType.QUERY so that the created search context can execute queries correctly.
             DefaultSearchContext searchContext = createSearchContext(readerContext, request, timeout, ResultsType.QUERY);
             searchContext.addReleasable(readerContext.markAsUsed(0L));
@@ -2171,15 +2172,14 @@ public class SearchService extends AbstractLifecycleComponent implements IndexEv
     }
 
     public long getActivePITContexts() {
-        return this.activeReaders.values().stream().filter(c -> c.singleSession() == false).filter(c -> c.scrollContext() == null).count();
+        return this.activeReaders.values().stream().filter(c -> c instanceof PitReaderContext).count();
     }
 
-    public List<ReaderContext> getActivePITContexts(ShardId shardId) {
+    public List<PitReaderContext> getActivePITContexts(ShardId shardId) {
         return this.activeReaders.values()
             .stream()
-            .filter(c -> c.singleSession() == false)
-            .filter(c -> c.scrollContext() == null)
-            .filter(c -> c.indexShard().shardId().equals(shardId))
+            .filter(c -> c instanceof PitReaderContext && c.indexShard().shardId().equals(shardId))
+            .map(c -> (PitReaderContext) c)
             .collect(Collectors.toList());
     }
 

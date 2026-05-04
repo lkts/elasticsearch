@@ -18,6 +18,7 @@ import org.elasticsearch.search.dfs.AggregatedDfs;
 import org.elasticsearch.transport.TransportRequest;
 
 import java.util.Objects;
+import java.util.function.Function;
 
 public final class ScrollReaderContext implements ReaderContext {
     private final ReaderContext delegate;
@@ -58,10 +59,12 @@ public final class ScrollReaderContext implements ReaderContext {
             searcher.getQueryCachingPolicy(),
             () -> {}
         );
-        var supplier = new Engine.SearcherSupplier(indexShard::wrapSearcher) {
+        // No wrapper since it was already applied when we acquired `searcher`.
+        var actualSupplier = new Engine.SearcherSupplier(Function.identity()) {
             @Override
             protected void doClose() {
                 searcher.close();
+                searcherSupplier.close();
             }
 
             @Override
@@ -70,7 +73,7 @@ public final class ScrollReaderContext implements ReaderContext {
             }
         };
 
-        this.delegate = new SingleSessionReaderContext(id, indexService, indexShard, supplier, keepAliveInMillis);
+        this.delegate = new SingleSessionReaderContext(id, indexService, indexShard, actualSupplier, keepAliveInMillis);
     }
 
     @Override
@@ -117,16 +120,6 @@ public final class ScrollReaderContext implements ReaderContext {
     @Override
     public boolean isExpired() {
         return delegate.isExpired();
-    }
-
-    @Override
-    public boolean isRelocating() {
-        return false;
-    }
-
-    @Override
-    public void relocate() {
-        delegate.relocate();
     }
 
     @Override

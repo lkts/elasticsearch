@@ -69,10 +69,10 @@ import org.elasticsearch.search.aggregations.support.CoreValuesSourceType;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.internal.AliasFilter;
 import org.elasticsearch.search.internal.ReaderContext;
-import org.elasticsearch.search.internal.ScrollContext;
 import org.elasticsearch.search.internal.ScrollReaderContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
 import org.elasticsearch.search.internal.ShardSearchRequest;
+import org.elasticsearch.search.internal.SingleSessionReaderContext;
 import org.elasticsearch.search.rescore.RescoreContext;
 import org.elasticsearch.search.slice.SliceBuilder;
 import org.elasticsearch.search.sort.FieldSortBuilder;
@@ -183,13 +183,12 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
 
             SearchShardTarget target = new SearchShardTarget("node", shardId, null);
 
-            ReaderContext readerWithoutScroll = new ReaderContext(
+            ReaderContext readerWithoutScroll = new SingleSessionReaderContext(
                 newContextId(),
                 indexService,
                 indexShard,
                 searcherSupplier.get(),
-                randomNonNegativeLong(),
-                false
+                randomNonNegativeLong()
             );
             DefaultSearchContext contextWithoutScroll = new DefaultSearchContext(
                 readerWithoutScroll,
@@ -302,21 +301,15 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
             }
 
             readerContext.close();
-            readerContext = new ReaderContext(
+            readerContext = new ScrollReaderContext(
                 newContextId(),
                 indexService,
                 indexShard,
                 searcherSupplier.get(),
-                randomNonNegativeLong(),
-                false
-            ) {
-                @Override
-                public ScrollContext scrollContext() {
-                    ScrollContext scrollContext = new ScrollContext();
-                    scrollContext.scroll = TimeValue.timeValueSeconds(5);
-                    return scrollContext;
-                }
-            };
+                shardSearchRequest,
+                randomNonNegativeLong()
+            );
+            readerContext.scrollContext().scroll = TimeValue.timeValueSeconds(5);
             // rescore is null but sliceBuilder is not null
             try (
                 DefaultSearchContext context2 = new DefaultSearchContext(
@@ -385,13 +378,12 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
                 when(searchExecutionContext.getFieldType(anyString())).thenReturn(mock(MappedFieldType.class));
 
                 readerContext.close();
-                readerContext = new ReaderContext(
+                readerContext = new SingleSessionReaderContext(
                     newContextId(),
                     indexService,
                     indexShard,
                     searcherSupplier.get(),
-                    randomNonNegativeLong(),
-                    false
+                    randomNonNegativeLong()
                 );
             }
 
@@ -461,13 +453,12 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
                 }
             };
             SearchShardTarget target = new SearchShardTarget("node", shardId, null);
-            ReaderContext readerContext = new ReaderContext(
+            ReaderContext readerContext = new SingleSessionReaderContext(
                 newContextId(),
                 indexService,
                 indexShard,
                 searcherSupplier,
-                randomNonNegativeLong(),
-                false
+                randomNonNegativeLong()
             );
             DefaultSearchContext context = new DefaultSearchContext(
                 readerContext,
@@ -1117,13 +1108,12 @@ public class DefaultSearchContextTests extends MapperServiceTestCase {
 
             SearchShardTarget target = new SearchShardTarget("node", shardId, null);
 
-            ReaderContext readerContext = new ReaderContext(
+            ReaderContext readerContext = new SingleSessionReaderContext(
                 newContextId(),
                 indexService,
                 indexShard,
                 searcherSupplier.get(),
-                randomNonNegativeLong(),
-                false
+                randomNonNegativeLong()
             );
             return new DefaultSearchContext(
                 readerContext,
