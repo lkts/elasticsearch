@@ -583,10 +583,9 @@ public class TransportStatelessUnpromotableRelocationAction extends TransportAct
 
     /// Contains all resharding-related metadata of an open PIT.
     /// This is needed to apply special logic related to resharding when opening a new reader in scope of PIT relocation.
-    static record OpenPITReshardingState(
-        @Nullable IndexReshardingMetadata indexReshardingMetadata,
-        SplitShardCountSummary splitShardCountSummary
-    ) implements Writeable {
+    record OpenPITReshardingState(@Nullable IndexReshardingMetadata indexReshardingMetadata, SplitShardCountSummary splitShardCountSummary)
+        implements
+            Writeable {
         OpenPITReshardingState(StreamInput in) throws IOException {
             this(in.readOptional(IndexReshardingMetadata::new), new SplitShardCountSummary(in));
         }

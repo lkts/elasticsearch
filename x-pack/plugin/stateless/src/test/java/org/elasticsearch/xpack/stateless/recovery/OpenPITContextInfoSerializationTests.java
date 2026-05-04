@@ -71,7 +71,6 @@ public class OpenPITContextInfoSerializationTests extends AbstractWireSerializin
     OpenPITReshardingState randomReshardingState() {
         int shards = randomIntBetween(1, 10);
         if (randomBoolean()) {
-
             return new OpenPITReshardingState(null, SplitShardCountSummary.fromInt(shards));
         }
         return new OpenPITReshardingState(
@@ -131,7 +130,7 @@ public class OpenPITContextInfoSerializationTests extends AbstractWireSerializin
                 instance.keepAlive(),
                 instance.contextId(),
                 instance.metadata(),
-                randomReshardingState()
+                randomValueOtherThan(instance.reshardingState(), this::randomReshardingState)
             );
             default -> throw new IllegalStateException("Unexpected value " + i);
         };
