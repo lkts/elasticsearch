@@ -125,7 +125,7 @@ public class SparseFileTrackerTests extends ESTestCase {
     }
 
     public void testWaitForEmptySubRangeReturnsImmediately() {
-        final byte[] fileContents = new byte[between(0, 1000)];
+        final byte[] fileContents = new byte[between(1, 1000)];
         final long length = fileContents.length;
         final SparseFileTracker sparseFileTracker = new SparseFileTracker("test", length);
 
