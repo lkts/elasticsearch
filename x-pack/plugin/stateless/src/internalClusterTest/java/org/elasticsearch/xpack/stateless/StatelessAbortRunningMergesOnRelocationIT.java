@@ -32,7 +32,7 @@ import org.elasticsearch.index.merge.OnGoingMerge;
 import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.plugins.PluginsService;
-import org.elasticsearch.test.junit.annotations.TestLogging;
+import org.elasticsearch.test.junit.annotations.TestIssueLogging;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.stateless.commits.StatelessCompoundCommit;
 import org.elasticsearch.xpack.stateless.objectstore.ObjectStoreService;
@@ -50,7 +50,10 @@ import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoFa
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
 
-@TestLogging(reason = "Debugging the test #153854", value = "org.elasticsearch.xpack.stateless.engine.IndexEngine:DEBUG")
+@TestIssueLogging(
+    issueUrl = "https://github.com/elastic/elasticsearch/issues/153854",
+    value = "org.elasticsearch.xpack.stateless.engine.IndexEngine:DEBUG"
+)
 public class StatelessAbortRunningMergesOnRelocationIT extends AbstractStatelessPluginIntegTestCase {
 
     private static final int MAX_CONCURRENT_RUNNING_MERGES = 2;
