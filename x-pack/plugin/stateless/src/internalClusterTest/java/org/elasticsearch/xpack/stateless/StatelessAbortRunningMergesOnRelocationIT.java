@@ -50,7 +50,7 @@ import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoFa
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
 
-@TestLogging(reason = "Debugging the test", value = "org.elasticsearch.xpack.stateless.engine.IndexEngine:DEBUG")
+@TestLogging(reason = "Debugging the test #153854", value = "org.elasticsearch.xpack.stateless.engine.IndexEngine:DEBUG")
 public class StatelessAbortRunningMergesOnRelocationIT extends AbstractStatelessPluginIntegTestCase {
 
     private static final int MAX_CONCURRENT_RUNNING_MERGES = 2;
