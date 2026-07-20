@@ -982,9 +982,6 @@ public class IndexEngine extends InternalEngine {
 
             @Override
             public boolean isAborted() {
-                if (logger.isDebugEnabled()) {
-                    logger.debug("[{}] Checking custom isAborted() logic.", oneMerge.segString());
-                }
                 if (super.isAborted()) {
                     return true;
                 }
@@ -992,9 +989,6 @@ public class IndexEngine extends InternalEngine {
                 if (shouldSkipMerge()) {
                     // If a merge is considered to be aborted due to running relocation, we want to keep that for
                     // the entire merge lifecycle even if the relocation is canceled to avoid any inconsistencies.
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("[{}] Setting aborted flag due to shouldSkipMerge()", oneMerge.segString());
-                    }
                     setAborted();
                 }
                 return super.isAborted();
@@ -1003,9 +997,6 @@ public class IndexEngine extends InternalEngine {
     }
 
     private boolean shouldSkipMerge() {
-        if (logger.isDebugEnabled()) {
-            logger.debug("Checking shouldSkipMerge(): {} - {}", forceMergesInProgress.get() == 0, shouldSkipMerges.test(shardId));
-        }
         return forceMergesInProgress.get() == 0 && shouldSkipMerges.test(shardId);
     }
 
