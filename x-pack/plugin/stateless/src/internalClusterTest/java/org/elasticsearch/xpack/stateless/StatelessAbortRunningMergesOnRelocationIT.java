@@ -125,8 +125,7 @@ public class StatelessAbortRunningMergesOnRelocationIT extends AbstractStateless
             totalMerges,
             numRunningMerges,
             withConcurrentForceMerge ? 0 : totalMerges,
-            withConcurrentForceMerge ? totalMerges : 0,
-            withConcurrentForceMerge
+            withConcurrentForceMerge ? totalMerges : 0
         );
         final var executor = internalCluster().getInstance(IndicesService.class, sourceNode).getThreadPoolMergeExecutorService();
         assertThat(executor, notNullValue());
@@ -140,19 +139,14 @@ public class StatelessAbortRunningMergesOnRelocationIT extends AbstractStateless
 
         // Over-provision flushed segments so the tiered policy is guaranteed to schedule at least `totalMerges` merges.
         for (int i = 0; i < totalMerges * (segmentsPerTier + 1); i++) {
-            int documentCount = randomIntBetween(20, 50);
-            indexDocs(indexName, documentCount);
+            indexDocs(indexName, randomIntBetween(20, 50));
             flush(indexName);
-            recorder.documentsIndexed(documentCount);
         }
         recorder.awaitQueued();
         recorder.awaitStarted();
 
         // Leave uncommitted docs so the relocation pre-flush produces a commit upload we can block.
-        // These documents are visible for merges since the commit is created, it is just not uploaded.
-        int finalDocs = randomIntBetween(20, 50);
-        indexDocs(indexName, finalDocs);
-        recorder.documentsIndexed(finalDocs);
+        indexDocs(indexName, randomIntBetween(20, 50));
 
         ActionFuture<BroadcastResponse> forceMergeFuture = null;
         if (withConcurrentForceMerge) {
@@ -218,18 +212,13 @@ public class StatelessAbortRunningMergesOnRelocationIT extends AbstractStateless
         private final CountDownLatch started;
         private final CountDownLatch aborted;
         private final CountDownLatch succeeded;
-        private final boolean expectForceMerge;
-
         private final AtomicInteger abortedCount = new AtomicInteger();
 
-        private int documentCount = 0;
-
-        MergeEventRecorder(int expectedQueued, int expectedStarted, int expectedAborted, int expectedSucceeded, boolean expectForceMerge) {
+        MergeEventRecorder(int expectedQueued, int expectedStarted, int expectedAborted, int expectedSucceeded) {
             this.queued = new CountDownLatch(expectedQueued);
             this.started = new CountDownLatch(expectedStarted);
             this.aborted = new CountDownLatch(expectedAborted);
             this.succeeded = new CountDownLatch(expectedSucceeded);
-            this.expectForceMerge = expectForceMerge;
         }
 
         MergeEventListener listener() {
@@ -246,16 +235,6 @@ public class StatelessAbortRunningMergesOnRelocationIT extends AbstractStateless
 
                 @Override
                 public void onMergeCompleted(OnGoingMerge merge) {
-                    if (merge.getMerge().totalNumDocs() == documentCount) {
-                        assertTrue("Unexpected force merge", expectForceMerge);
-                        // We know that there is a race here with setting the abort flag on the force merge.
-                        // However, the force merge is complete at this point and was reported as done in the API,
-                        // so that doesn't really matter.
-                        // As such we don't check the aborted flag.
-                        // See #153854.
-                        return;
-                    }
-
                     // A merge aborted while running still surfaces here, with isAborted() == true.
                     if (merge.getMerge().isAborted()) {
                         abortedCount.incrementAndGet();
@@ -291,10 +270,6 @@ public class StatelessAbortRunningMergesOnRelocationIT extends AbstractStateless
 
         int abortedCount() {
             return abortedCount.get();
-        }
-
-        void documentsIndexed(int count) {
-            documentCount += count;
         }
     }
 
