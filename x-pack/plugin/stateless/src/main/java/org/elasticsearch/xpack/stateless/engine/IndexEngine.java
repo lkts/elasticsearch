@@ -988,7 +988,7 @@ public class IndexEngine extends InternalEngine {
                     return true;
                 }
 
-                // No need to change if the merge should be skipped if it's already finished.
+                // No need to check if the merge should be skipped if it's already finished.
                 if (isComplete) {
                     return super.isAborted();
                 }
