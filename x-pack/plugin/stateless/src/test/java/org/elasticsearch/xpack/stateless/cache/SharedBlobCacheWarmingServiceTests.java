@@ -8,8 +8,11 @@
 package org.elasticsearch.xpack.stateless.cache;
 
 import org.apache.lucene.codecs.CodecUtil;
+import org.apache.lucene.index.SegmentCommitInfo;
+import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.util.SetOnce;
+import org.apache.lucene.util.Version;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.support.PlainActionFuture;
 import org.elasticsearch.blobcache.BlobCacheMetrics;
@@ -52,6 +55,7 @@ import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.stateless.StatelessPlugin;
 import org.elasticsearch.xpack.stateless.TestUtils;
+import org.elasticsearch.xpack.stateless.cache.SharedBlobCacheWarmingService.AbstractWarmingTask;
 import org.elasticsearch.xpack.stateless.cache.SharedBlobCacheWarmingService.Type;
 import org.elasticsearch.xpack.stateless.cache.SharedBlobCacheWarmingService.WarmTarget;
 import org.elasticsearch.xpack.stateless.cache.reader.CacheBlobReader;
@@ -86,10 +90,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -98,6 +104,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongConsumer;
 import java.util.function.LongFunction;
+import java.util.stream.Collectors;
 
 import static org.elasticsearch.blobcache.common.BlobCacheBufferedIndexInput.BUFFER_SIZE;
 import static org.elasticsearch.test.ActionListenerUtils.anyActionListener;
@@ -1046,10 +1053,21 @@ public class SharedBlobCacheWarmingServiceTests extends ESTestCase {
                     warmingRatioProvider
                 ) {
                     @Override
-                    protected void scheduleWarmingTask(ActionListener<Releasable> warmTask) {
+                    protected void scheduleWarmingTask(AbstractWarmingTask warmTask) {
                         // Wrap the task so that after its onResponse() returns (i.e. after fetchRange() has
                         // submitted the file's first page to the central queue) the latch counts down.
-                        super.scheduleWarmingTask(ActionListener.runAfter(warmTask, outerTasksDone::countDown));
+                        super.scheduleWarmingTask(new AbstractWarmingTask(warmTask.type, warmTask.submissionTimeRelativeNanos) {
+                            @Override
+                            public void onResponse(Releasable releasable) {
+                                warmTask.onResponse(releasable);
+                                outerTasksDone.countDown();
+                            }
+
+                            @Override
+                            public void onFailure(Exception e) {
+                                warmTask.onFailure(e);
+                            }
+                        });
                     }
                 };
             }
@@ -1151,7 +1169,7 @@ public class SharedBlobCacheWarmingServiceTests extends ESTestCase {
                     warmingRatioProvider
                 ) {
                     @Override
-                    protected void scheduleWarmingTask(ActionListener<Releasable> task) {
+                    protected void scheduleWarmingTask(AbstractWarmingTask task) {
                         capturedTasks.add(task);
                     }
                 };
@@ -2147,6 +2165,217 @@ public class SharedBlobCacheWarmingServiceTests extends ESTestCase {
             );
             safeGet(future);
             assertWarmingDurationMetricRecorded(recordingMeterRegistry, "merge");
+        }
+    }
+
+    public void testAbstractWarmingTaskComparison() {
+        var typesOtherThanMerge = Arrays.stream(Type.values()).collect(Collectors.toSet());
+        typesOtherThanMerge.remove(Type.INDEXING_MERGE);
+
+        var queue = new PriorityQueue<MyTask>();
+
+        var task1 = new MyTask(randomFrom(typesOtherThanMerge), 500);
+        queue.add(task1);
+        var task2 = new MyTask(randomFrom(typesOtherThanMerge), 2);
+        queue.add(task2);
+        var task3 = new MyTask(randomFrom(typesOtherThanMerge), 1000);
+        queue.add(task3);
+        // This represents overflow in System.nanoTime().
+        var task4 = new MyTask(randomFrom(typesOtherThanMerge), Long.MAX_VALUE + 10);
+        queue.add(task4);
+        var task5 = new MyTask(Type.INDEXING_MERGE, -30);
+        queue.add(task5);
+        var task6 = new MyTask(Type.INDEXING_MERGE, -200);
+        queue.add(task6);
+
+        assertEquals(List.of(task2, task1, task3, task4, task5, task6), queue.stream().toList());
+    }
+
+    public void testPrioritizationOfWarmingTasks() throws IOException {
+        var primaryTerm = 1;
+        try (var fakeNode = createFakeNode(primaryTerm)) {
+            var warmingService = fakeNode.warmingService;
+
+            // We want to force the warming tasks that we assert on to go into the queue of the task runner.
+            // That way we'll verify their order in the queue.
+            // The number of concurrent tasks in the rask runner is one more than the number of threads.
+            // Later we'll want to free up one slot in the thread pool at a time to assert the order.
+            // To do that and keeping in mind that concurrent tasks in the task runner is one more
+            // than the number of threads, we need three tasks that can be controlled independently to pull this off.
+            // See other comments below.
+            var genericWarmingBlockedLatch = new CountDownLatch(1);
+            var genericBlockingTask = new AbstractWarmingTask(INDEXING, 1) {
+                @Override
+                public void onResponse(Releasable releasable) {
+                    try (releasable) {
+                        safeAwait(genericWarmingBlockedLatch);
+                    }
+                }
+
+                @Override
+                public void onFailure(Exception e) {}
+            };
+            // These just occupy threads in the thread pool allowing fine grained control,
+            // note - 3 as discussed above.
+            int genericTasks = (1 + fakeNode.threadPool.info(StatelessPlugin.PREWARM_THREAD_POOL).getMax()) - 3;
+            for (int i = 0; i < genericTasks; i++) {
+                warmingService.scheduleWarmingTask(genericBlockingTask);
+            }
+
+            // This task occupies the second-to-last available thread in the thread pool.
+            var task1Blocked = new CountDownLatch(1);
+            var task1 = new AbstractWarmingTask(INDEXING, 1) {
+                @Override
+                public void onResponse(Releasable releasable) {
+                    try (releasable) {
+                        safeAwait(task1Blocked);
+                    }
+                }
+
+                @Override
+                public void onFailure(Exception e) {}
+            };
+            warmingService.scheduleWarmingTask(task1);
+
+            // This task occupies the last available thread in the thread pool.
+            var task2Blocked = new CountDownLatch(1);
+            var task2 = new AbstractWarmingTask(INDEXING, 1) {
+                @Override
+                public void onResponse(Releasable releasable) {
+                    try (releasable) {
+                        safeAwait(task2Blocked);
+                    }
+                }
+
+                @Override
+                public void onFailure(Exception e) {}
+            };
+            warmingService.scheduleWarmingTask(task2);
+
+            // This task takes the final slot in the task runner and is added to a thread pool queue.
+            var task3Blocked = new CountDownLatch(1);
+            var task3 = new AbstractWarmingTask(INDEXING, 1) {
+                @Override
+                public void onResponse(Releasable releasable) {
+                    try (releasable) {
+                        safeAwait(task3Blocked);
+                    }
+                }
+
+                @Override
+                public void onFailure(Exception e) {}
+            };
+            warmingService.scheduleWarmingTask(task3);
+
+            // Now we can submit warming tasks with different priorities which will be added
+            // to task runner queue.
+
+            var indexCommits = fakeNode.generateIndexCommitsWithoutCompoundFiles(randomIntBetween(1, 5));
+            var vbcc = new VirtualBatchedCompoundCommit(
+                fakeNode.shardId,
+                "fake-node-id",
+                primaryTerm,
+                indexCommits.get(0).getGeneration(),
+                (v) -> null,
+                ESTestCase::randomNonNegativeLong,
+                fakeNode.sharedCacheService.getRegionSize(),
+                randomIntBetween(0, fakeNode.sharedCacheService.getRegionSize())
+            );
+            appendCommitsToVbcc(vbcc, fakeNode.searchDirectory, indexCommits);
+            vbcc.freeze();
+
+            var indexBlobContainer = fakeNode.getShardContainer();
+            try (var vbccInputStream = vbcc.getFrozenInputStreamForUpload()) {
+                indexBlobContainer.writeBlobAtomic(
+                    OperationPurpose.INDICES,
+                    vbcc.getBlobName(),
+                    vbccInputStream,
+                    vbcc.getTotalSizeInBytes(),
+                    true
+                );
+            }
+
+            StatelessCompoundCommit lastCommit = vbcc.getFrozenBatchedCompoundCommit().lastCompoundCommit();
+            Map.Entry<String, BlobLocation> someFile = lastCommit.commitFiles().entrySet().stream().findFirst().get();
+
+            // Merge warming is submitted first but will be executed last.
+            SegmentInfo info = new SegmentInfo(
+                fakeNode.indexingDirectory,
+                Version.LATEST,
+                Version.LATEST,
+                "_segment1",
+                Integer.MAX_VALUE,
+                false,
+                false,
+                null,
+                Map.of(),
+                new byte[16],
+                Map.of(),
+                null
+            );
+            info.setFiles(List.of(someFile.getKey()));
+            var segmentCommitInfo = new SegmentCommitInfo(info, 0, 0, -1L, -1L, -1L, new byte[16]);
+
+            var mergeWarmFuture = new PlainActionFuture<Void>();
+            warmingService.warmCacheMerge(
+                "test-merge",
+                fakeNode.shardId,
+                fakeNode.indexingStore,
+                List.of(segmentCommitInfo),
+                fileName -> someFile.getValue(),
+                () -> false,
+                mergeWarmFuture
+            );
+
+            IndexShard indexShard = mockIndexShard(fakeNode);
+            PlainActionFuture<Void> nonMergeWarmFuture = new PlainActionFuture<>();
+            warmingService.warmCache(
+                randomValueOtherThanMany(t -> t == Type.INDEXING_MERGE || t == SEARCH, () -> randomFrom(Type.values())),
+                indexShard,
+                lastCommit,
+                fakeNode.indexingDirectory.getBlobStoreCacheDirectory(),
+                null,
+                false,
+                nonMergeWarmFuture
+            );
+
+            // This pulls the head item from the task runner queue and adds it to the thread pool queue.
+            task1Blocked.countDown();
+
+            // This will pull the head item from the task runner queue again
+            // and allow to execute the task that is in the thread pool queue.
+            // The item pulled from the task runner queue is added to the thread pool queue.
+            task2Blocked.countDown();
+
+            // And that task should be the non-merge one due to priority.
+            safeGet(nonMergeWarmFuture);
+            assertFalse(mergeWarmFuture.isDone());
+
+            task3Blocked.countDown();
+            safeGet(mergeWarmFuture);
+
+            genericWarmingBlockedLatch.countDown();
+        }
+    }
+
+    private class MyTask extends AbstractWarmingTask {
+        MyTask(Type type, long submissionTimeRelativeNanos) {
+            super(type, submissionTimeRelativeNanos);
+        }
+
+        @Override
+        public void onResponse(Releasable releasable) {
+
+        }
+
+        @Override
+        public void onFailure(Exception e) {
+
+        }
+
+        @Override
+        public String toString() {
+            return type + ":" + submissionTimeRelativeNanos;
         }
     }
 }
